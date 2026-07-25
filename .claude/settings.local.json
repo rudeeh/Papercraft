@@ -2,7 +2,10 @@
   "permissions": {
     "allow": [
       "Bash(cat:*)",
-      "Bash(npm install:*)"
+      "Bash(npm install:*)",
+      "Skill(artifact-design)",
+      "Skill(artifact-design:*)",
+      "mcp__visualize__read_me"
     ]
   }
 }

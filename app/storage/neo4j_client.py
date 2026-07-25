@@ -274,30 +274,6 @@ class Neo4jClient:
             result = sess.run(cypher, params)
             return [dict(record) for record in result]
 
-    # ------------------------------------------------------------------
-    # Convenience queries
-    # ------------------------------------------------------------------
-
-    def get_paper_graph(self, paper_id: str) -> List[Dict]:
-        """Return every node and edge reachable from a Paper node."""
-        cypher = (
-            "MATCH (p:Paper {paper_id: $paper_id}) "
-            "OPTIONAL MATCH (p)-[r]-(n) "
-            "RETURN p, r, n"
-        )
-        return self.query(cypher, {"paper_id": paper_id})
-
-    def delete_paper_graph(self, paper_id: str) -> int:
-        """DETACH DELETE a Paper and count removed nodes."""
-        results = self.query(
-            "MATCH (p:Paper {paper_id: $pid}) "
-            "OPTIONAL MATCH (p)-[r]-(n) "
-            "DETACH DELETE p "
-            "RETURN count(p) AS deleted",
-            {"pid": paper_id},
-        )
-        return results[0]["deleted"] if results else 0
-
     def health_check(self) -> bool:
         """Return True if Neo4j is reachable and responding."""
         try:

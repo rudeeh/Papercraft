@@ -47,11 +47,6 @@ async def _post_graph_query(payload):
         return await ac.post("/api/v1/graph-query", json=payload)
 
 
-async def _get_paper_graph(paper_id):
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
-        return await ac.get(f"/api/v1/papers/{paper_id}/graph")
-
-
 async def _get_citation_graph():
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         return await ac.get("/api/v1/citation-graph")
@@ -151,45 +146,6 @@ class TestGraphQueryEndpoint:
         await _post_graph_query({"query": "What is BERT?"})
 
         mock_hybrid.retrieve.assert_called_once_with("What is BERT?", top_k=10)
-
-
-class TestPaperGraphEndpoint:
-    @pytest.mark.asyncio
-    async def test_returns_nodes_and_edges_for_existing_paper(self):
-        mock_repo = MagicMock()
-        mock_repo.get_paper_graph.return_value = {
-            "nodes": [{"id": "p1", "type": "Paper", "title": "My Paper"}],
-            "edges": [],
-        }
-        app.dependency_overrides[get_graph_repository] = lambda: mock_repo
-
-        response = await _get_paper_graph("p1")
-
-        assert response.status_code == 200
-        body = response.json()
-        assert body["paper_id"] == "p1"
-        assert body["nodes"][0]["id"] == "p1"
-        assert body["edges"] == []
-
-    @pytest.mark.asyncio
-    async def test_missing_paper_returns_404(self):
-        mock_repo = MagicMock()
-        mock_repo.get_paper_graph.return_value = {}
-        app.dependency_overrides[get_graph_repository] = lambda: mock_repo
-
-        response = await _get_paper_graph("does-not-exist")
-
-        assert response.status_code == 404
-
-    @pytest.mark.asyncio
-    async def test_graph_store_failure_returns_503(self):
-        mock_repo = MagicMock()
-        mock_repo.get_paper_graph.side_effect = ConnectionError("neo4j down")
-        app.dependency_overrides[get_graph_repository] = lambda: mock_repo
-
-        response = await _get_paper_graph("p1")
-
-        assert response.status_code == 503
 
 
 class TestCitationGraphEndpoint:

@@ -10,7 +10,6 @@ import {
   HealthStatus,
   GraphQueryRequest,
   GraphQueryResponse,
-  PaperGraphResponse,
   CitationGraphResponse,
   LlmStatus
 } from '../models/api.models';
@@ -145,12 +144,6 @@ export class ApiService {
   graphQuery(request: GraphQueryRequest): Observable<GraphQueryResponse> {
     const payload = { ...request, api_key: request.api_key || this.llmApiKey() || undefined };
     return this.http.post<GraphQueryResponse>(`${this.apiUrl()}/api/v1/graph-query`, payload).pipe(
-      catchError(this.handleError)
-    );
-  }
-
-  getPaperGraph(paperId: string): Observable<PaperGraphResponse> {
-    return this.http.get<PaperGraphResponse>(`${this.apiUrl()}/api/v1/papers/${paperId}/graph`).pipe(
       catchError(this.handleError)
     );
   }

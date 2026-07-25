@@ -110,27 +110,6 @@ export interface GraphQueryResponse {
   retrieval_trace: RetrievalTrace;
 }
 
-export interface PaperGraphNode {
-  id: string;
-  type: string;
-  name?: string;
-  [key: string]: unknown;
-}
-
-export interface PaperGraphEdge {
-  source: string;
-  source_type: string;
-  type: string;
-  target: string;
-  target_type: string;
-  properties?: Record<string, unknown>;
-}
-
-export interface PaperGraphResponse {
-  paper_id: string;
-  nodes: PaperGraphNode[];
-  edges: PaperGraphEdge[];
-}
 
 export interface CitationGraphPaper {
   paper_id: string;

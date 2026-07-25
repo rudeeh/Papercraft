@@ -4,8 +4,8 @@ Graph Query API Routes (Phase 16)
 Exposes the GraphRAG retrieval + answer-generation stack (Phases 11-15)
 through FastAPI:
 
-    POST /graph-query           -- ask a question, get a grounded answer
-    GET  /papers/{paper_id}/graph -- fetch a single paper's knowledge graph
+    POST /graph-query     -- ask a question, get a grounded answer
+    GET  /citation-graph  -- the cross-paper citation network
 
 Kept in its own module (rather than a routes/ package) since the existing
 codebase uses a flat app/api/routes.py -- this file defines a second
@@ -168,8 +168,7 @@ async def get_citation_graph(
 ):
     """
     Return the whole cross-paper citation network (every ingested paper,
-    real or stub, plus every CITES edge) -- for a global graph explorer,
-    as opposed to GET /papers/{paper_id}/graph's single-paper neighborhood.
+    real or stub, plus every CITES edge) -- for the global graph explorer.
     """
     try:
         return graph_repo.get_citation_graph()
@@ -178,26 +177,3 @@ async def get_citation_graph(
         raise HTTPException(
             status_code=503, detail="Graph store is currently unavailable"
         ) from exc
-
-
-@router.get("/papers/{paper_id}/graph")
-async def get_paper_graph(
-    paper_id: str,
-    graph_repo: GraphRepository = Depends(get_graph_repository),
-):
-    try:
-        graph = graph_repo.get_paper_graph(paper_id)
-    except Exception as exc:
-        logger.error("paper_graph_fetch_failed", paper_id=paper_id, error=str(exc))
-        raise HTTPException(
-            status_code=503, detail="Graph store is currently unavailable"
-        ) from exc
-
-    if not graph:
-        raise HTTPException(status_code=404, detail=f"Paper '{paper_id}' not found")
-
-    return {
-        "paper_id": paper_id,
-        "nodes": graph["nodes"],
-        "edges": graph["edges"],
-    }

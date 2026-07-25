@@ -173,11 +173,11 @@ GraphRAG-specific:
 - **`/graph-query` returns 503** -- Neo4j or Qdrant isn't reachable from
   the API container/process. Check `docker-compose ps` and
   `docker-compose logs neo4j`.
-- **`GET /papers/{paper_id}/graph` returns 404 for a paper you just
-  uploaded** -- ingestion is async; check
-  `GET /api/v1/status/{task_id}` first to confirm the `NEO4J_STORE` step
-  succeeded (not `SKIPPED` -- that means Neo4j wasn't reachable during
-  ingestion, in which case re-ingest with `?force=true` once it is).
+- **A paper doesn't show up in the citation graph after uploading** --
+  ingestion is async; check `GET /api/v1/status/{task_id}` first to
+  confirm the `NEO4J_STORE` step succeeded (not `SKIPPED` -- that means
+  Neo4j wasn't reachable during ingestion, in which case re-ingest with
+  `?force=true` once it is).
 - **Citation/entity graph looks sparse** -- entity and relation extraction
   are deterministic pattern matchers (see `architecture.md` section 6),
   not an LLM -- they only recognize the method/dataset/task/metric names

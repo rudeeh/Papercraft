@@ -1,11 +1,12 @@
-import { Component, ViewChild } from '@angular/core';
+import { Component, ViewChild, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { HeaderComponent } from './components/header/header.component';
 import { UploadComponent } from './components/upload/upload.component';
 import { StatusComponent } from './components/status/status.component';
 import { RecentTasksComponent } from './components/recent-tasks/recent-tasks.component';
 import { AskComponent } from './components/ask/ask.component';
-import { ExploreComponent } from './components/explore/explore.component';
+import { CitationExplorerComponent } from './components/citation-explorer/citation-explorer.component';
+import { ThemeService } from './services/theme.service';
 
 @Component({
   selector: 'app-root',
@@ -17,7 +18,7 @@ import { ExploreComponent } from './components/explore/explore.component';
     StatusComponent,
     RecentTasksComponent,
     AskComponent,
-    ExploreComponent
+    CitationExplorerComponent
   ],
   template: `
     <app-header />
@@ -30,8 +31,8 @@ import { ExploreComponent } from './components/explore/explore.component';
           (useInChat)="onUseInChat($event)"
         />
         <app-status #statusComponent />
-        <app-ask #askComponent (viewPaperGraph)="onViewPaperGraph($event)" />
-        <app-explore #exploreComponent />
+        <app-ask #askComponent />
+        <app-citation-explorer />
       </div>
     </main>
 
@@ -48,7 +49,7 @@ import { ExploreComponent } from './components/explore/explore.component';
 
     .main-content {
       flex: 1;
-      background: #f5f5f5;
+      background: var(--color-background);
       padding: 2rem;
     }
 
@@ -61,15 +62,15 @@ import { ExploreComponent } from './components/explore/explore.component';
     }
 
     .footer {
-      background: #fff;
-      border-top: 1px solid #e0e0e0;
+      background: var(--color-white);
+      border-top: 1px solid var(--color-border);
       padding: 1rem 2rem;
       text-align: center;
     }
 
     .footer p {
       margin: 0;
-      color: #666;
+      color: var(--color-medium-gray);
       font-size: 0.875rem;
     }
 
@@ -81,9 +82,13 @@ import { ExploreComponent } from './components/explore/explore.component';
   `]
 })
 export class AppComponent {
+  // Injected here (rather than only in HeaderComponent) so the theme
+  // attribute is applied as early as possible during bootstrap, before
+  // the rest of the tree renders.
+  private themeService = inject(ThemeService);
+
   @ViewChild('statusComponent') statusComponent!: StatusComponent;
   @ViewChild('askComponent') askComponent!: AskComponent;
-  @ViewChild('exploreComponent') exploreComponent!: ExploreComponent;
 
   onTaskUploaded(event: { taskId: string; docId?: string }): void {
     this.statusComponent.setTaskId(event.taskId);
@@ -98,9 +103,5 @@ export class AppComponent {
 
   onUseInChat(docId: string): void {
     this.askComponent.setDocId(docId);
-  }
-
-  onViewPaperGraph(paperId: string): void {
-    this.exploreComponent.setPaperId(paperId);
   }
 }

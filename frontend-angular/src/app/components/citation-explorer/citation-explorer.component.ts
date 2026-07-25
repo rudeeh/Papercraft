@@ -1,4 +1,4 @@
-import { Component, inject, signal, computed, output } from '@angular/core';
+import { Component, inject, signal, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ApiService } from '../../services/api.service';
@@ -15,16 +15,16 @@ interface PositionedPaper extends CitationGraphPaper {
  * old standalone graph_visualizer.html (which only knew about the external
  * Semantic Scholar API, not anything actually uploaded here).
  *
- * Deliberately simple, like app-paper-graph: a static circle layout, no
- * force simulation, no zoom/pan, no animations. Click a paper to inspect
- * it or jump to its full local graph (app-paper-graph).
+ * Deliberately simple: a static circle layout, no force simulation, no
+ * zoom/pan, no animations. Click a paper to inspect it.
  */
 @Component({
   selector: 'app-citation-explorer',
   standalone: true,
   imports: [CommonModule, FormsModule],
   template: `
-    <div class="panel">
+    <div class="card">
+      <h2>Explore the graph</h2>
       <p class="hint">Every ingested paper and the citation links between them. Click one to inspect it.</p>
 
       <div class="toolbar">
@@ -82,9 +82,6 @@ interface PositionedPaper extends CitationGraphPaper {
               @if (selected()!.year) { · {{ selected()!.year }} }
               · {{ selected()!.is_stub ? 'not yet ingested' : 'ingested' }}
             </div>
-            @if (!selected()!.is_stub) {
-              <button class="btn btn-primary btn-sm" (click)="viewFullGraph()">View full graph</button>
-            }
           </div>
         }
 
@@ -112,13 +109,23 @@ interface PositionedPaper extends CitationGraphPaper {
     </div>
   `,
   styles: [`
-    .panel {
-      padding-top: 1rem;
+    .card {
+      background: var(--color-white);
+      border: 1px solid var(--color-border);
+      border-radius: 8px;
+      padding: 1.5rem;
+    }
+
+    h2 {
+      margin: 0 0 0.5rem;
+      font-size: 1.125rem;
+      font-weight: 600;
+      color: var(--color-black);
     }
 
     .hint {
       margin: 0 0 1rem;
-      color: #666;
+      color: var(--color-medium-gray);
       font-size: 0.8125rem;
     }
 
@@ -131,14 +138,16 @@ interface PositionedPaper extends CitationGraphPaper {
     .input {
       flex: 1;
       padding: 0.5rem 0.75rem;
-      border: 1px solid #ccc;
+      border: 1px solid var(--color-input-border);
       border-radius: 4px;
       font-size: 0.875rem;
+      background: var(--color-white);
+      color: var(--color-black);
     }
 
     .input:focus {
       outline: none;
-      border-color: #333;
+      border-color: var(--color-dark-gray);
     }
 
     .btn {
@@ -157,30 +166,20 @@ interface PositionedPaper extends CitationGraphPaper {
     }
 
     .btn-secondary {
-      background: #f5f5f5;
-      color: #1a1a1a;
-      border: 1px solid #ddd;
+      background: var(--color-surface-hover);
+      color: var(--color-black);
+      border: 1px solid var(--color-input-border);
     }
 
     .btn-secondary:hover:not(:disabled) {
-      background: #e8e8e8;
-    }
-
-    .btn-primary {
-      background: #1a1a1a;
-      color: #fff;
-    }
-
-    .btn-sm {
-      padding: 0.4rem 0.875rem;
-      font-size: 0.8125rem;
+      background: var(--color-surface-hover-strong);
     }
 
     .graph-wrap {
       display: flex;
       justify-content: center;
-      background: #fafafa;
-      border: 1px solid #e0e0e0;
+      background: var(--color-surface-alt);
+      border: 1px solid var(--color-border);
       border-radius: 4px;
     }
 
@@ -191,18 +190,18 @@ interface PositionedPaper extends CitationGraphPaper {
     }
 
     .edge-line {
-      stroke: #ccc;
+      stroke: var(--graph-edge-color);
       stroke-width: 1;
     }
 
     .paper-dot {
-      fill: #1a1a1a;
+      fill: var(--color-black);
       cursor: pointer;
     }
 
     .paper-dot.stub {
-      fill: #fff;
-      stroke: #999;
+      fill: var(--color-surface-alt);
+      stroke: var(--color-light-gray);
       stroke-width: 1.5;
       stroke-dasharray: 2 2;
     }
@@ -225,7 +224,7 @@ interface PositionedPaper extends CitationGraphPaper {
       gap: 1rem;
       margin-top: 0.75rem;
       font-size: 0.75rem;
-      color: #555;
+      color: var(--color-medium-gray);
     }
 
     .legend-item {
@@ -239,31 +238,31 @@ interface PositionedPaper extends CitationGraphPaper {
       height: 9px;
       border-radius: 50%;
       display: inline-block;
-      background: #1a1a1a;
+      background: var(--color-black);
     }
 
     .legend-dot.stub {
-      background: #fff;
-      border: 1.5px dashed #999;
+      background: var(--color-white);
+      border: 1.5px dashed var(--color-light-gray);
     }
 
     .info-panel {
       margin-top: 1rem;
       padding: 0.875rem;
-      background: #f8f9fa;
-      border: 1px solid #e0e0e0;
+      background: var(--color-surface-alt);
+      border: 1px solid var(--color-border);
       border-radius: 4px;
     }
 
     .info-title {
       font-weight: 600;
-      color: #1a1a1a;
+      color: var(--color-black);
       margin-bottom: 0.25rem;
     }
 
     .info-meta {
       font-size: 0.75rem;
-      color: #666;
+      color: var(--color-medium-gray);
       font-family: monospace;
       margin-bottom: 0.625rem;
       word-break: break-all;
@@ -273,7 +272,7 @@ interface PositionedPaper extends CitationGraphPaper {
       margin-top: 1rem;
       max-height: 180px;
       overflow-y: auto;
-      border-top: 1px solid #e0e0e0;
+      border-top: 1px solid var(--color-border);
       padding-top: 0.5rem;
     }
 
@@ -283,34 +282,34 @@ interface PositionedPaper extends CitationGraphPaper {
       gap: 0.5rem;
       padding: 0.375rem 0.25rem;
       font-size: 0.8125rem;
-      color: #333;
+      color: var(--color-dark-gray);
       cursor: pointer;
       border-radius: 4px;
     }
 
     .paper-row:hover {
-      background: #f5f5f5;
+      background: var(--color-surface-hover);
     }
 
     .paper-row.selected {
-      background: #e7f3ff;
+      background: var(--color-info-bg);
     }
 
     .paper-row .dot {
       width: 7px;
       height: 7px;
       border-radius: 50%;
-      background: #1a1a1a;
+      background: var(--color-black);
       flex-shrink: 0;
     }
 
     .paper-row .dot.stub {
-      background: #fff;
-      border: 1.5px dashed #999;
+      background: var(--color-white);
+      border: 1.5px dashed var(--color-light-gray);
     }
 
     .empty {
-      color: #666;
+      color: var(--color-medium-gray);
       font-size: 0.875rem;
     }
 
@@ -318,17 +317,15 @@ interface PositionedPaper extends CitationGraphPaper {
       margin-top: 1rem;
       padding: 1rem;
       border-radius: 4px;
-      background: #f8d7da;
-      border: 1px solid #f5c6cb;
-      color: #721c24;
+      background: var(--color-error-bg);
+      border: 1px solid var(--color-error-border);
+      color: var(--color-error-text);
       font-size: 0.875rem;
     }
   `]
 })
 export class CitationExplorerComponent {
   private apiService = inject(ApiService);
-
-  viewPaperGraph = output<string>();
 
   searchTerm = '';
   isLoading = signal(false);
@@ -392,12 +389,5 @@ export class CitationExplorerComponent {
 
   select(paper: CitationGraphPaper): void {
     this.selected.set(paper);
-  }
-
-  viewFullGraph(): void {
-    const paper = this.selected();
-    if (paper) {
-      this.viewPaperGraph.emit(paper.paper_id);
-    }
   }
 }

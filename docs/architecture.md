@@ -105,7 +105,7 @@ Graph queries are anchored two ways: entities spotted in the query text
 itself (reusing `EntityExtractor`'s deterministic term matching -- the
 same code paper text goes through, applied to the question instead), and
 an optional explicit `paper_id` when the caller already knows which paper
-is in scope (used for `GET /papers/{paper_id}/graph`-style follow-ups).
+is in scope.
 
 `HybridRetriever.retrieve()` also accepts `force_mode` (`"graph"` |
 `"vector"` | `"both"`) to bypass the routing table entirely -- used by the
@@ -184,7 +184,7 @@ re-ingestion is idempotent the same way Neo4j writes are.
 | 14 | Citation expansion | `app/retrieval/citation_expander.py` |
 | 15 | Answer generation | `app/llm/{context_builder,answer_generator}.py` |
 | 16 | API integration | `app/api/graph_routes.py` |
-| 17 | Frontend integration | `frontend-angular/src/app/components/{graph-query,paper-graph}/` |
+| 17 | Frontend integration | `frontend-angular/src/app/components/ask/` |
 | 18 | Evaluation | `evaluation/{questions.json,run_eval.py}` |
 
 ## 6. Design principle carried through every phase

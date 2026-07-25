@@ -2,6 +2,7 @@ import { Component, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ApiService } from '../../services/api.service';
+import { ThemeService } from '../../services/theme.service';
 
 @Component({
   selector: 'app-header',
@@ -40,6 +41,14 @@ import { ApiService } from '../../services/api.service';
           <span class="dot"></span>
           <span class="text">{{ apiService.healthStatus().online ? 'Online' : 'Offline' }}</span>
         </div>
+        <button
+          type="button"
+          class="theme-toggle"
+          (click)="themeService.toggle()"
+          [attr.aria-label]="themeService.theme() === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'"
+        >
+          {{ themeService.theme() === 'dark' ? '☀️ Light' : '\u{1F319} Dark' }}
+        </button>
       </div>
     </header>
     @if (!apiService.llmStatus().server_key_configured && !apiService.llmApiKey()) {
@@ -51,8 +60,8 @@ import { ApiService } from '../../services/api.service';
   `,
   styles: [`
     .header {
-      background: #fff;
-      border-bottom: 1px solid #e0e0e0;
+      background: var(--color-white);
+      border-bottom: 1px solid var(--color-border);
       padding: 1.5rem 2rem;
       display: flex;
       justify-content: space-between;
@@ -65,13 +74,13 @@ import { ApiService } from '../../services/api.service';
       margin: 0;
       font-size: 1.75rem;
       font-weight: 600;
-      color: #1a1a1a;
+      color: var(--color-black);
     }
 
     .subtitle {
       margin: 0.25rem 0 0;
       font-size: 0.875rem;
-      color: #666;
+      color: var(--color-medium-gray);
     }
 
     .header-controls {
@@ -89,38 +98,40 @@ import { ApiService } from '../../services/api.service';
 
     .api-url-input label {
       font-size: 0.875rem;
-      color: #444;
+      color: var(--color-dark-gray);
       font-weight: 500;
     }
 
     .api-url-input input {
       padding: 0.5rem 0.75rem;
-      border: 1px solid #ccc;
+      border: 1px solid var(--color-input-border);
       border-radius: 4px;
       font-size: 0.875rem;
       width: 280px;
+      background: var(--color-white);
+      color: var(--color-black);
       transition: border-color 0.2s;
     }
 
     .api-url-input input:focus {
       outline: none;
-      border-color: #333;
+      border-color: var(--color-dark-gray);
     }
 
     .llm-key-input.required label {
-      color: #b02a37;
+      color: var(--color-error);
     }
 
     .llm-key-input.required input {
-      border-color: #dc3545;
+      border-color: var(--color-error);
     }
 
     .llm-key-banner {
       width: 100%;
       padding: 0.5rem 2rem 1rem;
       font-size: 0.8125rem;
-      color: #b02a37;
-      background: #fff;
+      color: var(--color-error);
+      background: var(--color-white);
     }
 
     .llm-key-banner a {
@@ -133,7 +144,7 @@ import { ApiService } from '../../services/api.service';
       align-items: center;
       gap: 0.5rem;
       padding: 0.5rem 1rem;
-      background: #f5f5f5;
+      background: var(--color-background);
       border-radius: 20px;
       font-size: 0.875rem;
     }
@@ -142,16 +153,32 @@ import { ApiService } from '../../services/api.service';
       width: 8px;
       height: 8px;
       border-radius: 50%;
-      background: #dc3545;
+      background: var(--color-error);
     }
 
     .status-indicator.online .dot {
-      background: #28a745;
+      background: var(--color-success);
     }
 
     .status-indicator .text {
-      color: #444;
+      color: var(--color-dark-gray);
       font-weight: 500;
+    }
+
+    .theme-toggle {
+      padding: 0.5rem 1rem;
+      border: 1px solid var(--color-input-border);
+      border-radius: 20px;
+      background: var(--color-background);
+      color: var(--color-dark-gray);
+      font-size: 0.875rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background-color 0.2s;
+    }
+
+    .theme-toggle:hover {
+      background: var(--color-surface-hover-strong);
     }
 
     @media (max-width: 768px) {
@@ -167,6 +194,7 @@ import { ApiService } from '../../services/api.service';
 })
 export class HeaderComponent {
   apiService = inject(ApiService);
+  themeService = inject(ThemeService);
 
   onApiUrlChange(url: string): void {
     this.apiService.setApiUrl(url);

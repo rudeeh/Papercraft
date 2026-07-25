@@ -1,4 +1,4 @@
-import { Component, inject, signal, computed, input, effect, output } from '@angular/core';
+import { Component, inject, signal, computed, input, effect } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ApiService } from '../../services/api.service';
@@ -89,9 +89,8 @@ type AskMode = 'smart' | 'quick';
           @if (result.sources.length > 0) {
             <div class="subsection">
               <h3>Source Papers</h3>
-              <p class="subsection-hint">Click one to see its graph below.</p>
               @for (source of result.sources; track source.paper_id) {
-                <div class="chip" (click)="viewGraph(source.paper_id)">
+                <div class="chip">
                   {{ source.title || source.paper_id }}
                 </div>
               }
@@ -166,8 +165,8 @@ type AskMode = 'smart' | 'quick';
   `,
   styles: [`
     .card {
-      background: #fff;
-      border: 1px solid #e0e0e0;
+      background: var(--color-white);
+      border: 1px solid var(--color-border);
       border-radius: 8px;
       padding: 1.5rem;
     }
@@ -176,25 +175,25 @@ type AskMode = 'smart' | 'quick';
       margin: 0 0 0.5rem;
       font-size: 1.125rem;
       font-weight: 600;
-      color: #1a1a1a;
+      color: var(--color-black);
     }
 
     h3 {
       margin: 0 0 0.75rem;
       font-size: 0.9375rem;
       font-weight: 600;
-      color: #333;
+      color: var(--color-dark-gray);
     }
 
     .hint {
       margin: 0 0 1rem;
-      color: #666;
+      color: var(--color-medium-gray);
       font-size: 0.8125rem;
     }
 
     .mode-toggle {
       display: inline-flex;
-      border: 1px solid #ddd;
+      border: 1px solid var(--color-input-border);
       border-radius: 6px;
       overflow: hidden;
       margin-bottom: 1rem;
@@ -203,8 +202,8 @@ type AskMode = 'smart' | 'quick';
     .mode-toggle button {
       padding: 0.5rem 1rem;
       border: none;
-      background: #f5f5f5;
-      color: #444;
+      background: var(--color-surface-hover);
+      color: var(--color-dark-gray);
       font-size: 0.875rem;
       font-weight: 500;
       cursor: pointer;
@@ -212,16 +211,16 @@ type AskMode = 'smart' | 'quick';
     }
 
     .mode-toggle button + button {
-      border-left: 1px solid #ddd;
+      border-left: 1px solid var(--color-input-border);
     }
 
     .mode-toggle button.active {
-      background: #1a1a1a;
-      color: #fff;
+      background: var(--accent-bg);
+      color: var(--accent-text);
     }
 
     .mode-toggle button:not(.active):hover {
-      background: #e8e8e8;
+      background: var(--color-surface-hover-strong);
     }
 
     .form-group {
@@ -232,18 +231,19 @@ type AskMode = 'smart' | 'quick';
       display: block;
       font-size: 0.8125rem;
       font-weight: 500;
-      color: #444;
+      color: var(--color-dark-gray);
       margin-bottom: 0.375rem;
     }
 
     .textarea, .select {
       width: 100%;
       padding: 0.625rem 0.875rem;
-      border: 1px solid #ccc;
+      border: 1px solid var(--color-input-border);
       border-radius: 4px;
       font-size: 0.9375rem;
       font-family: inherit;
-      background: #fff;
+      background: var(--color-white);
+      color: var(--color-black);
       transition: border-color 0.2s;
       box-sizing: border-box;
     }
@@ -255,7 +255,7 @@ type AskMode = 'smart' | 'quick';
 
     .textarea:focus, .select:focus {
       outline: none;
-      border-color: #333;
+      border-color: var(--color-dark-gray);
     }
 
     .btn {
@@ -274,12 +274,12 @@ type AskMode = 'smart' | 'quick';
     }
 
     .btn-primary {
-      background: #1a1a1a;
-      color: #fff;
+      background: var(--accent-bg);
+      color: var(--accent-text);
     }
 
     .btn-primary:hover:not(:disabled) {
-      background: #333;
+      background: var(--accent-bg-hover);
     }
 
     .result {
@@ -290,14 +290,14 @@ type AskMode = 'smart' | 'quick';
     }
 
     .result.success {
-      background: #f8f9fa;
-      border: 1px solid #e0e0e0;
+      background: var(--color-surface-alt);
+      border: 1px solid var(--color-border);
     }
 
     .result.error {
-      background: #f8d7da;
-      border: 1px solid #f5c6cb;
-      color: #721c24;
+      background: var(--color-error-bg);
+      border: 1px solid var(--color-error-border);
+      color: var(--color-error-text);
     }
 
     .answer-section {
@@ -312,8 +312,8 @@ type AskMode = 'smart' | 'quick';
     }
 
     .query-type-badge {
-      background: #e7f3ff;
-      color: #004085;
+      background: var(--color-info-bg);
+      color: var(--color-info-text);
       border-radius: 12px;
       padding: 0.15rem 0.625rem;
       font-size: 0.75rem;
@@ -323,7 +323,7 @@ type AskMode = 'smart' | 'quick';
 
     .answer-text {
       line-height: 1.6;
-      color: #1a1a1a;
+      color: var(--color-black);
       white-space: pre-wrap;
     }
 
@@ -332,46 +332,35 @@ type AskMode = 'smart' | 'quick';
     }
 
     .confidence-note {
-      background: #fff3cd;
-      border: 1px solid #ffe69c;
+      background: var(--color-warning-bg);
+      border: 1px solid var(--color-warning-border);
       border-radius: 4px;
       padding: 0.5rem 0.75rem;
       font-size: 0.8125rem;
-      color: #664d03;
+      color: var(--color-warning-text);
       margin-bottom: 0.5rem;
     }
 
     .subsection {
-      border-top: 1px solid #e0e0e0;
+      border-top: 1px solid var(--color-border);
       padding-top: 1rem;
       margin-top: 1rem;
     }
 
-    .subsection-hint {
-      margin: 0 0 0.5rem;
-      color: #888;
-      font-size: 0.75rem;
-    }
-
     .chip {
       display: inline-block;
-      background: #fff;
-      border: 1px solid #ccc;
+      background: var(--color-white);
+      border: 1px solid var(--color-input-border);
       border-radius: 16px;
       padding: 0.25rem 0.75rem;
       font-size: 0.8125rem;
       margin: 0 0.5rem 0.5rem 0;
-      cursor: pointer;
-    }
-
-    .chip:hover {
-      border-color: #1a1a1a;
-      background: #f5f5f5;
+      color: var(--color-black);
     }
 
     .fact {
-      background: #fff;
-      border: 1px solid #e0e0e0;
+      background: var(--color-white);
+      border: 1px solid var(--color-border);
       border-radius: 4px;
       padding: 0.75rem;
       margin-bottom: 0.5rem;
@@ -391,14 +380,14 @@ type AskMode = 'smart' | 'quick';
 
     .entity {
       font-weight: 600;
-      color: #1a1a1a;
+      color: var(--color-black);
     }
 
     .relation {
-      color: #666;
+      color: var(--color-medium-gray);
       font-family: monospace;
       font-size: 0.75rem;
-      background: #f0f0f0;
+      background: var(--color-surface-hover);
       border-radius: 3px;
       padding: 0.1rem 0.4rem;
     }
@@ -406,29 +395,29 @@ type AskMode = 'smart' | 'quick';
     .fact-evidence {
       margin-top: 0.375rem;
       font-style: italic;
-      color: #555;
+      color: var(--color-medium-gray);
       font-size: 0.8125rem;
       padding-left: 0.75rem;
-      border-left: 3px solid #ddd;
+      border-left: 3px solid var(--color-input-border);
     }
 
     .citation-path {
       font-size: 0.875rem;
-      color: #1a1a1a;
+      color: var(--color-black);
       margin-bottom: 0.375rem;
       font-family: monospace;
     }
 
     .path-meta {
-      color: #888;
+      color: var(--color-light-gray);
       font-family: inherit;
       font-size: 0.75rem;
       margin-left: 0.375rem;
     }
 
     .citation {
-      background: #fff;
-      border: 1px solid #e0e0e0;
+      background: var(--color-white);
+      border: 1px solid var(--color-border);
       border-radius: 4px;
       padding: 0.875rem;
       margin-bottom: 0.75rem;
@@ -448,24 +437,24 @@ type AskMode = 'smart' | 'quick';
 
     .source-label {
       font-weight: 600;
-      color: #444;
+      color: var(--color-dark-gray);
     }
 
     .source-name {
-      color: #1a1a1a;
+      color: var(--color-black);
     }
 
     .page-number {
-      color: #666;
+      color: var(--color-medium-gray);
       font-size: 0.875rem;
     }
 
     .citation-text {
       font-style: italic;
-      color: #555;
+      color: var(--color-medium-gray);
       line-height: 1.5;
       padding-left: 0.75rem;
-      border-left: 3px solid #ddd;
+      border-left: 3px solid var(--color-input-border);
     }
   `]
 })
@@ -473,7 +462,6 @@ export class AskComponent {
   private apiService = inject(ApiService);
 
   initialDocId = input<string>('');
-  viewPaperGraph = output<string>();
 
   mode = signal<AskMode>('smart');
   query = '';
@@ -545,9 +533,5 @@ export class AskComponent {
         }
       });
     }
-  }
-
-  viewGraph(paperId: string): void {
-    this.viewPaperGraph.emit(paperId);
   }
 }
