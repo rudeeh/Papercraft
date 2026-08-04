@@ -39,7 +39,9 @@ class TestChatEndpoint:
         mock_model.encode.return_value.tolist.return_value = [0.1] * 384
 
         mock_hit = MagicMock()
-        mock_hit.payload = {"doc_id": "d1", "page": 1, "filename": "f.pdf", "text": "some text"}
+        # Matches what VectorRepository actually stores: chunks are keyed
+        # by "paper_id", with no separate doc_id/filename field.
+        mock_hit.payload = {"paper_id": "d1", "page": 1, "text": "some text"}
 
         return (
             patch("app.services.embeddings.get_model", return_value=mock_model),
@@ -74,3 +76,64 @@ class TestChatEndpoint:
                 response = await ac.post("/api/v1/chat", json={"query": "hello"})
 
         assert response.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_blank_query_returns_422(self):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+            response = await ac.post("/api/v1/chat", json={"query": "   "})
+
+        assert response.status_code == 422
+
+
+class TestStatusEndpoint:
+    """
+    Celery reports PENDING both for queued-but-not-started work and for an
+    ID that was never issued, so /status leans on the backend having a
+    record (written at enqueue time) to tell a typo from real work.
+    """
+
+    @staticmethod
+    def _patch_celery(exists, side_effect=None, status="PENDING"):
+        """
+        Patch the ``celery_app`` name as imported into routes -- Celery's
+        real ``backend`` is a read-only property and can't be patched
+        directly.
+        """
+        mock_celery = MagicMock()
+        mock_celery.backend.get_key_for_task.return_value = "celery-task-meta-x"
+        if side_effect is not None:
+            mock_celery.backend.client.exists.side_effect = side_effect
+        else:
+            mock_celery.backend.client.exists.return_value = exists
+
+        mock_result = MagicMock()
+        mock_result.status = status
+        mock_result.ready.return_value = False
+        mock_celery.AsyncResult.return_value = mock_result
+
+        return patch("app.api.routes.celery_app", mock_celery)
+
+    @pytest.mark.asyncio
+    async def test_unknown_task_id_returns_404(self):
+        with self._patch_celery(exists=0):
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+                response = await ac.get("/api/v1/status/not-a-real-task-id")
+
+        assert response.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_known_task_id_returns_status(self):
+        with self._patch_celery(exists=1):
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+                response = await ac.get("/api/v1/status/real-task-id")
+
+        assert response.status_code == 200
+        assert response.json()["status"] == "PENDING"
+
+    @pytest.mark.asyncio
+    async def test_backend_error_fails_open_rather_than_404ing(self):
+        with self._patch_celery(exists=None, side_effect=RuntimeError("no redis")):
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+                response = await ac.get("/api/v1/status/some-task-id")
+
+        assert response.status_code == 200

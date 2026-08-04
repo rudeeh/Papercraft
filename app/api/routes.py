@@ -131,22 +131,56 @@ async def upload_pdf(
 
     # Enqueue Task
     task = celery_app.send_task("app.worker.tasks.process_pdf_task", args=[doc_id, final_path])
-    
+
+    # Write a PENDING result record immediately so the task ID is
+    # *known* to the backend from this moment on -- see _task_is_known().
+    # The worker overwrites this same key as it progresses.
+    try:
+        celery_app.backend.store_result(task.id, None, "PENDING")
+    except Exception:
+        pass  # Non-fatal: /status just falls back to reporting PENDING
+
     return {
         "message": "File uploaded and processing started.",
         "doc_id": doc_id,
         "task_id": task.id
     }
 
+
+def _task_is_known(task_id: str) -> bool:
+    """
+    Whether the result backend has any record of this task ID.
+
+    Celery reports PENDING both for a task that's queued-but-not-started
+    and for an ID that never existed, so status alone can't tell a typo
+    from real work in progress -- a garbage ID would sit on "PENDING"
+    forever. Because upload_pdf() stores a PENDING record at enqueue
+    time, absence of a record now means the ID was never issued here.
+
+    Fails *open* (returns True) if the backend doesn't support the check
+    or errors, so a backend swap degrades to the old always-PENDING
+    behaviour rather than 404-ing real tasks.
+    """
+    backend = celery_app.backend
+    try:
+        key = backend.get_key_for_task(task_id)
+        return bool(backend.client.exists(key))
+    except Exception:
+        return True
+
+
 @router.get("/status/{task_id}")
 async def get_status(task_id: str):
+    if not _task_is_known(task_id):
+        raise HTTPException(status_code=404, detail=f"Unknown task '{task_id}'")
+
     task_result = celery_app.AsyncResult(task_id)
-    
+
     response = {
         "task_id": task_id,
         "status": task_result.status,
     }
-    
+
     if task_result.status == "PROCESSING":
          response["info"] = task_result.info # Contains the meta dict
     elif task_result.ready():
@@ -154,7 +188,7 @@ async def get_status(task_id: str):
     else:
          # PENDING or other states
          pass
-         
+
     return response
 
 @router.get("/health")

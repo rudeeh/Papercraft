@@ -22,7 +22,7 @@ import { ThemeService } from '../../services/theme.service';
             id="apiUrl"
             [ngModel]="apiService.apiUrl()"
             (ngModelChange)="onApiUrlChange($event)"
-            placeholder="https://docrag-2gvg.onrender.com"
+            placeholder="http://localhost:8000"
           />
         </div>
         <div class="api-url-input llm-key-input" [class.required]="!apiService.llmStatus().server_key_configured">

@@ -17,8 +17,35 @@ import {
 const STORAGE_KEY = 'rag_recent_tasks';
 const API_URL_KEY = 'apiUrl';
 const LLM_API_KEY_STORAGE = 'openrouter_api_key';
-const DEFAULT_API_URL = 'https://docrag-2gvg.onrender.com';
+const DEPLOYED_API_URL = 'https://docrag-2gvg.onrender.com';
+const LOCAL_API_PORT = '8000';
 const KEEP_ALIVE_INTERVAL = 14 * 60 * 1000; // 14 minutes
+
+/**
+ * Where to point when the user hasn't picked an API URL yet.
+ *
+ * Served from localhost (the docker-compose setup puts the frontend on
+ * :8080 and the API on :8000), default to the API on this same host --
+ * hardcoding the deployed URL there meant every fresh local load fired
+ * cross-origin requests at a remote backend, showing "Offline" and
+ * filling the console with CORS errors until you manually retyped the
+ * URL. Reusing ``hostname`` rather than a literal also keeps whichever
+ * form you browsed with ("localhost" vs "127.0.0.1") intact, which
+ * matters when only one of the two resolves to the running container.
+ *
+ * Anywhere else (e.g. the frontend deployed to Vercel), fall back to the
+ * deployed backend as before.
+ */
+function defaultApiUrl(): string {
+  if (typeof window === 'undefined') {
+    return DEPLOYED_API_URL;
+  }
+  const { protocol, hostname } = window.location;
+  if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]') {
+    return `${protocol}//${hostname}:${LOCAL_API_PORT}`;
+  }
+  return DEPLOYED_API_URL;
+}
 
 @Injectable({
   providedIn: 'root'
@@ -43,9 +70,9 @@ export class ApiService {
 
   private loadApiUrl(): string {
     if (typeof localStorage !== 'undefined') {
-      return localStorage.getItem(API_URL_KEY) || DEFAULT_API_URL;
+      return localStorage.getItem(API_URL_KEY) || defaultApiUrl();
     }
-    return DEFAULT_API_URL;
+    return defaultApiUrl();
   }
 
   setApiUrl(url: string): void {
