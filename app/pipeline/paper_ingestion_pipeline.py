@@ -68,6 +68,19 @@ class StepStatus(str, Enum):
     ERROR = "error"
 
 
+def _elapsed_ms(start: float) -> float:
+    """
+    Milliseconds since *start* (a ``time.perf_counter()`` reading).
+
+    Deliberately returns a float rounded to microseconds rather than an
+    int: several steps legitimately finish in well under a millisecond,
+    and truncating those to ``int`` reported them as a flat ``0ms``,
+    which read as "the timer is broken" and made the per-step numbers
+    useless for spotting which stage actually costs time.
+    """
+    return round((time.perf_counter() - start) * 1000, 3)
+
+
 @dataclass
 class StepResult:
     """Outcome of a single pipeline step."""
@@ -75,7 +88,7 @@ class StepResult:
     status: StepStatus
     data: Any = None
     error: str = ""
-    duration_ms: int = 0
+    duration_ms: float = 0.0
 
 
 @dataclass
@@ -84,7 +97,7 @@ class PipelineResult:
 
     paper_id: str
     steps: List[StepResult] = field(default_factory=list)
-    total_duration_ms: int = 0
+    total_duration_ms: float = 0.0
 
     # Aggregate counts for the return value
     graph_nodes_count: int = 0
@@ -163,17 +176,20 @@ class PaperIngestionPipeline:
         **kwargs,
     ) -> StepResult:
         """Execute *fn* with timing and error handling."""
-        t0 = time.time()
+        # perf_counter, not time(): monotonic and high-resolution, where
+        # time() can sit at ~15ms granularity on Windows -- enough on its
+        # own to report a fast step as 0ms.
+        t0 = time.perf_counter()
         try:
             data = fn(*args, **kwargs)
             return StepResult(
                 step_name=step_name,
                 status=StepStatus.SUCCESS,
                 data=data,
-                duration_ms=int((time.time() - t0) * 1000),
+                duration_ms=_elapsed_ms(t0),
             )
         except Exception as exc:
-            ms = int((time.time() - t0) * 1000)
+            ms = _elapsed_ms(t0)
             logger.error(
                 "pipeline_step_failed",
                 step=step_name,
@@ -200,7 +216,7 @@ class PaperIngestionPipeline:
         Critical steps (OCR, PARSING) raise on failure.
         All other steps catch their own exceptions and continue.
         """
-        t_start = time.time()
+        t_start = time.perf_counter()
         result = PipelineResult(paper_id=paper_id)
 
         # ---- 1. OCR (CRITICAL) ------------------------------------------
@@ -209,7 +225,7 @@ class PaperIngestionPipeline:
         ocr_step = self._run_step("OCR", extract_text_from_pdf, file_path, critical=True)
         result.steps.append(ocr_step)
         if ocr_step.status == StepStatus.ERROR:
-            result.total_duration_ms = int((time.time() - t_start) * 1000)
+            result.total_duration_ms = _elapsed_ms(t_start)
             return result
         pages_text: list = ocr_step.data  # [(page_num, text), ...]
 
@@ -217,7 +233,7 @@ class PaperIngestionPipeline:
         parse_step = self._run_step("PARSING", self._parser.parse, pages_text, critical=True)
         result.steps.append(parse_step)
         if parse_step.status == StepStatus.ERROR:
-            result.total_duration_ms = int((time.time() - t_start) * 1000)
+            result.total_duration_ms = _elapsed_ms(t_start)
             return result
         parsed = parse_step.data
 
@@ -350,7 +366,7 @@ class PaperIngestionPipeline:
                 error="No embeddings to store",
             ))
 
-        result.total_duration_ms = int((time.time() - t_start) * 1000)
+        result.total_duration_ms = _elapsed_ms(t_start)
         logger.info(
             "pipeline_complete",
             paper_id=paper_id,

@@ -42,6 +42,14 @@ class PaperGraphBuilder:
     to the ontology defined in ``app/graph/ontology.py``.
     """
 
+    # EntityExtractor role -> the Paper->entity ontology edge it implies.
+    _ROLE_EDGE_TYPES = {
+        "introduces": "INTRODUCES",
+        "uses_method": "USES_METHOD",
+        "uses_dataset": "USES_DATASET",
+        "solves_task": "SOLVES_TASK",
+    }
+
     def __init__(self) -> None:
         self._validator = OntologyValidator()
 
@@ -136,13 +144,27 @@ class PaperGraphBuilder:
             entity_id_map[key] = ent_node.node_id
             nodes.append(ent_node)
 
-            mention_edge = self._safe_edge(
+            # Prefer the specific ontology edge the extractor inferred
+            # from the sentence ("we propose X" -> INTRODUCES) and fall
+            # back to MENTIONS. Previously every entity got a blanket
+            # MENTIONS, which is why the graph only ever showed three of
+            # the eleven defined edge types.
+            edge_type = self._ROLE_EDGE_TYPES.get(ent.get("role"), "MENTIONS")
+            entity_edge = self._safe_edge(
+                paper_node.node_id, "Paper",
+                edge_type,
+                ent_node.node_id, ent["type"],
+                evidence=ent.get("evidence"),
+            ) or self._safe_edge(
+                # Role edge rejected by the ontology for this node type
+                # (e.g. a Metric can only be MENTIONS-ed) -- don't lose
+                # the edge entirely.
                 paper_node.node_id, "Paper",
                 "MENTIONS",
                 ent_node.node_id, ent["type"],
             )
-            if mention_edge:
-                edges.append(mention_edge)
+            if entity_edge:
+                edges.append(entity_edge)
 
         # 5. Relation edges between entities
         for rel in relations:

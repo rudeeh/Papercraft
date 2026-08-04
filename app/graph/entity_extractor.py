@@ -20,6 +20,12 @@ class EntityExtractor:
 
     ENTITY_TYPES = {"Method", "Dataset", "Task", "Metric", "Claim", "Experiment"}
 
+    # Types whose ``name`` is expected to be an actual proper name, and so
+    # must survive the fragment/stopword checks in _is_plausible_name().
+    # Claim and Experiment are excluded: a Claim's name is a statement
+    # snippet, and an Experiment's is derived from its section heading.
+    NAME_LIKE_TYPES = {"Method", "Dataset", "Task", "Metric"}
+
     KNOWN_METHODS = {
         "Transformer",
         "BERT",
@@ -78,6 +84,62 @@ class EntityExtractor:
         "NDCG",
     }
 
+    # Function words that are never an entity on their own, and never a
+    # sensible *start* to one. The fallback regexes below deliberately
+    # anchor on capitalisation to pick out proper nouns ("BERT model"),
+    # but a capitalised determiner at the start of a sentence ("The
+    # model", "Our approach") satisfies that just as well -- which is
+    # how articles and pronouns ended up stored as Methods/Datasets.
+    STOPWORD_NAMES = {
+        "a", "an", "the", "this", "that", "these", "those", "it", "its",
+        "we", "our", "ours", "us", "they", "their", "theirs", "them",
+        "he", "she", "his", "her", "i", "my", "you", "your",
+        "all", "both", "each", "every", "any", "some", "such", "same",
+        "other", "another", "one", "two", "three", "first", "second",
+        "no", "not", "only", "also", "then", "than", "there", "here",
+        "which", "who", "whom", "whose", "what", "when", "where", "how",
+        "and", "or", "but", "if", "so", "as", "of", "in", "on", "for",
+        "to", "by", "with", "from", "at", "is", "are", "was", "were",
+        "be", "been", "being", "has", "have", "had", "do", "does", "did",
+        "can", "could", "will", "would", "may", "might", "must", "should",
+        "proposed", "existing", "previous", "recent", "new", "novel",
+        "several", "many", "most", "more", "less", "very", "however",
+    }
+
+    # A trailing token from this set means the capture ran off the end of
+    # a phrase and grabbed a dangling connective -- a fragment, not a name.
+    DANGLING_TAIL_WORDS = {
+        "a", "an", "the", "of", "in", "on", "for", "to", "by", "with",
+        "from", "at", "and", "or", "but", "as", "that", "which", "is",
+        "are", "was", "were", "be", "been", "than", "then", "into",
+        "over", "under", "between", "through", "during", "per",
+    }
+
+    # Connectives that shouldn't appear *inside* a name -- their presence
+    # means the capture swallowed a preposition and joined two separate
+    # things ("BERT on the SQuAD"). "of" is deliberately allowed, since
+    # it shows up in genuine names ("bag of words", "mixture of experts").
+    INTERIOR_CONNECTORS = {
+        "the", "a", "an", "on", "in", "at", "and", "or", "with",
+        "from", "by", "to", "that", "which", "we", "our", "this",
+    }
+
+    # Verb/clause markers: their presence means the capture spans a
+    # clause boundary, i.e. it's a sentence fragment rather than a name.
+    _CLAUSE_MARKER_RE = re.compile(
+        r"\b(?:is|are|was|were|be|been|being|has|have|had|does|do|did|"
+        r"can|could|will|would|may|might|must|should|enables?|denotes?|"
+        r"shows?|allows?|requires?|provides?|contains?|includes?|"
+        r"consists?|employs?|leverages?|that|which|whose|whereas|while|"
+        r"because|therefore|thus|hence)\b",
+        re.IGNORECASE,
+    )
+
+    # Longest plausible multi-word entity name. Real method/dataset names
+    # are short ("Multi-Head Attention", "CIFAR-100"); anything longer is
+    # almost always a captured clause.
+    MAX_NAME_WORDS = 6
+
     CLAIM_PATTERNS = [
         r"\bwe\s+(show|demonstrate|prove|find|observe|claim|conclude)\b",
         r"\bresults?\s+(show|demonstrate|indicate|suggest)\b",
@@ -126,8 +188,8 @@ class EntityExtractor:
         for method in self._regex_names(
             sentence,
             [
-                r"\b(?:propose|introduce|present|use|using|develop)\s+(?:a|an|the)?\s*([A-Z][A-Za-z0-9-]*(?:\s+[A-Z][A-Za-z0-9-]*){0,4})\s+(?:model|method|architecture|framework|algorithm|approach)\b",
-                r"\b([A-Z][A-Za-z0-9-]*(?:\s+[A-Z][A-Za-z0-9-]*){0,4})\s+(?:model|method|architecture|framework|algorithm|approach)\b",
+                r"\b(?i:propose|introduce|present|use|using|develop)\s+(?i:a|an|the)?\s*([A-Z][A-Za-z0-9-]*(?:\s+[A-Z][A-Za-z0-9-]*){0,4})\s+(?i:model|method|architecture|framework|algorithm|approach)\b",
+                r"\b([A-Z][A-Za-z0-9-]*(?:\s+[A-Z][A-Za-z0-9-]*){0,4})\s+(?i:model|method|architecture|framework|algorithm|approach)\b",
             ],
         ):
             self._add_entity(entities, seen, method, "Method", source_section, sentence)
@@ -138,8 +200,8 @@ class EntityExtractor:
         for dataset in self._regex_names(
             sentence,
             [
-                r"\b(?:on|using|with|from)\s+([A-Z][A-Za-z0-9-]*(?:[- ][A-Za-z0-9]+){0,4})\s+(?:dataset|corpus|benchmark)\b",
-                r"\b([A-Z][A-Za-z0-9-]*(?:[- ][A-Za-z0-9]+){0,4})\s+(?:dataset|corpus|benchmark)\b",
+                r"\b(?i:on|using|with|from)\s+([A-Z][A-Za-z0-9-]*(?:[- ][A-Za-z0-9]+){0,4})\s+(?i:dataset|corpus|benchmark)\b",
+                r"\b([A-Z][A-Za-z0-9-]*(?:[- ][A-Za-z0-9]+){0,4})\s+(?i:dataset|corpus|benchmark)\b",
             ],
         ):
             self._add_entity(entities, seen, dataset, "Dataset", source_section, sentence)
@@ -150,8 +212,8 @@ class EntityExtractor:
         for task in self._regex_names(
             sentence,
             [
-                r"\b(?:for|on|solve|solves|address|addresses)\s+([a-z][a-z -]{3,60}?)\s+(?:task|problem)\b",
-                r"\b([a-z][a-z -]{3,60}?)\s+(?:task|problem)\b",
+                r"\b(?i:for|on|solve|solves|address|addresses)\s+([a-z][a-z -]{3,40}?)\s+(?i:task|problem)\b",
+                r"\b([a-z][a-z -]{3,40}?)\s+(?i:task|problem)\b",
             ],
         ):
             self._add_entity(entities, seen, task, "Task", source_section, sentence)
@@ -161,7 +223,15 @@ class EntityExtractor:
 
         for metric in self._regex_names(
             sentence,
-            [r"\b(?:measured by|reports?|achieves?)\s+([A-Z][A-Za-z0-9-]*|[a-z]+(?:\s+[a-z]+){0,2})\b"],
+            [
+                # Only accept a *metric-shaped* phrase -- one ending in an
+                # explicit metric noun ("BLEU score", "error rate"). The
+                # previous pattern captured any 1-3 words following
+                # "achieves", which is how "the", "human" and "tight"
+                # became Metrics.
+                r"\b(?i:measured by|reports?|achieves?|obtains?|yields?)\s+(?i:a|an|the)?\s*"
+                r"([A-Za-z][A-Za-z0-9-]*(?:\s+[A-Za-z][A-Za-z0-9-]*){0,2}\s+(?i:score|rate|error))\b",
+            ],
         ):
             self._add_entity(entities, seen, metric, "Metric", source_section, sentence)
 
@@ -177,6 +247,29 @@ class EntityExtractor:
                 source_section,
                 sentence,
             )
+
+    # How the paper relates to an entity, inferred from the verb used in
+    # the sentence that mentioned it. Lets PaperGraphBuilder emit the
+    # specific ontology edge (INTRODUCES / USES_DATASET / SOLVES_TASK)
+    # instead of a blanket MENTIONS for everything.
+    _ROLE_PATTERNS = {
+        "Method": [
+            (r"\b(?i:propose[sd]?|introduc(?:e|es|ed|ing)|present[sd]?|develop(?:s|ed)?)\b", "introduces"),
+            (r"\b(?i:use[sd]?|using|employ(?:s|ed)?|adopt(?:s|ed)?|appl(?:y|ies|ied))\b", "uses_method"),
+        ],
+        "Dataset": [
+            (r"\b(?i:evaluat(?:e|es|ed)|train(?:s|ed)?|test(?:s|ed)?|benchmark(?:s|ed)?|use[sd]?|using)\b", "uses_dataset"),
+        ],
+        "Task": [
+            (r"\b(?i:solve[sd]?|address(?:es|ed)?|target(?:s|ed)?|tackle[sd]?|for)\b", "solves_task"),
+        ],
+    }
+
+    def _paper_role(self, sentence: str, entity_type: str) -> Optional[str]:
+        for pattern, role in self._ROLE_PATTERNS.get(entity_type, []):
+            if re.search(pattern, sentence):
+                return role
+        return None
 
     def _add_entity(
         self,
@@ -197,20 +290,27 @@ class EntityExtractor:
             return
         if not OntologyValidator.validate_node_type(entity_type):
             return
+        # Only the "name-like" types must look like names. A Claim is a
+        # statement and an Experiment is derived from its section, so
+        # holding those to the same rule would drop them entirely.
+        if entity_type in self.NAME_LIKE_TYPES and not self._is_plausible_name(name):
+            return
 
         key = (entity_type.lower(), name.lower())
         if key in seen:
             return
 
         seen.add(key)
-        entities.append(
-            {
-                "name": name,
-                "type": entity_type,
-                "source_section": source_section,
-                "evidence": evidence,
-            }
-        )
+        entity = {
+            "name": name,
+            "type": entity_type,
+            "source_section": source_section,
+            "evidence": evidence,
+        }
+        role = self._paper_role(evidence, entity_type)
+        if role:
+            entity["role"] = role
+        entities.append(entity)
 
     def _coerce_sections(self, source: Any) -> List[Tuple[str, str]]:
         if source is None:
@@ -286,9 +386,18 @@ class EntityExtractor:
         return found
 
     def _regex_names(self, sentence: str, patterns: Iterable[str]) -> List[str]:
+        """
+        Run capture patterns *case-sensitively*.
+
+        These patterns anchor on capitalisation (``[A-Z]``) to pick out
+        proper nouns; matching them with ``re.IGNORECASE`` silently
+        defeated that, so "the model" captured "the" and "The dataset"
+        captured "The". Trigger words that genuinely need to match either
+        case use an inline ``(?i:...)`` group instead.
+        """
         names = []
         for pattern in patterns:
-            for match in re.finditer(pattern, sentence, re.IGNORECASE):
+            for match in re.finditer(pattern, sentence):
                 names.append(match.group(1))
         return names
 
@@ -296,8 +405,19 @@ class EntityExtractor:
         return any(re.search(pattern, sentence, re.IGNORECASE) for pattern in patterns)
 
     def _claim_name(self, sentence: str) -> str:
-        words = self._clean_evidence(sentence).split()
-        return " ".join(words[:12])
+        """
+        Short label for a claim node.
+
+        A claim's "name" is necessarily a statement rather than a proper
+        name, but hard-cutting at 12 words produced labels that ended
+        mid-phrase and read like corrupt data. Mark the truncation so it
+        's visibly a snippet; the full sentence is kept as evidence.
+        """
+        cleaned = self._clean_evidence(sentence)
+        words = cleaned.split()
+        if len(words) <= 12:
+            return cleaned
+        return " ".join(words[:12]) + "…"
 
     def _experiment_name(self, sentence: str, source_section: str) -> str:
         section = self._clean_name(source_section) or "Experiment"
@@ -323,6 +443,52 @@ class EntityExtractor:
             return None
 
         return cleaned
+
+    def _is_plausible_name(self, name: str) -> bool:
+        """
+        Reject captures that are function words or sentence fragments
+        rather than entity names.
+
+        The capture patterns are deliberately permissive so they can find
+        names not in the known-term lists, which means they also pick up
+        the occasional clause. This is the backstop that keeps things
+        like "The", "All", "This enables the" and "denote each stream..."
+        out of the graph.
+        """
+        words = name.split()
+        if not words:
+            return False
+
+        lowered = [w.lower().strip(".,;:()[]{}") for w in words]
+
+        # Entirely function words ("The", "All", "Our", "of the").
+        if all(w in self.STOPWORD_NAMES for w in lowered):
+            return False
+
+        # Starts with a determiner/pronoun -- "This enables the", "Our".
+        if lowered[0] in self.STOPWORD_NAMES:
+            return False
+
+        # Dangles on a connective -- "the majority of", "compared to".
+        if lowered[-1] in self.DANGLING_TAIL_WORDS:
+            return False
+
+        # Joins two things across a preposition -- "BERT on the SQuAD".
+        if any(w in self.INTERIOR_CONNECTORS for w in lowered[1:-1]):
+            return False
+
+        # Spans a clause boundary: it's a sentence, not a name.
+        if self._CLAUSE_MARKER_RE.search(name):
+            return False
+
+        if len(words) > self.MAX_NAME_WORDS:
+            return False
+
+        # Needs at least one letter -- pure punctuation/digits aren't names.
+        if not re.search(r"[A-Za-z]", name):
+            return False
+
+        return True
 
     def _clean_evidence(self, value: str) -> str:
         return re.sub(r"\s+", " ", value or "").strip()
