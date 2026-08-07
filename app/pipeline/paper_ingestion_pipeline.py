@@ -16,7 +16,7 @@ PDF
   -> Store Graph in Neo4j  (non-critical)
   -> Build Vector Chunks  (non-critical)
   -> Generate Embeddings  (non-critical)
-  -> Store Vectors in Qdrant  (non-critical)
+  -> Store Vectors in Weaviate  (non-critical)
 
 Vector chunks are built from the same paper-graph inputs as the Neo4j
 step (abstract, sections, entities) rather than raw OCR text, so every
@@ -32,8 +32,8 @@ Risk Mitigations Addressed
   outcome (SUCCESS / ERROR / SKIPPED), duration, and error message.
 - Neo4j unavailability is graceful: If Neo4j cannot be reached the
   pipeline still completes the vector path and marks graph steps as SKIPPED.
-- Qdrant unavailability is graceful: mirrors the Neo4j behaviour -- if no
-  ``VectorRepository`` is supplied, EMBEDDING/QDRANT_STORE are SKIPPED
+- Weaviate unavailability is graceful: mirrors the Neo4j behaviour -- if no
+  ``VectorRepository`` is supplied, EMBEDDING/VECTOR_STORE are SKIPPED
   rather than raising.
 """
 
@@ -140,7 +140,7 @@ class PipelineResult:
 
 class PaperIngestionPipeline:
     """
-    End-to-end pipeline: PDF  ->  knowledge graph in Neo4j  +  vectors in Qdrant.
+    End-to-end pipeline: PDF  ->  knowledge graph in Neo4j  +  vectors in Weaviate.
     """
 
     def __init__(
@@ -349,20 +349,20 @@ class PaperIngestionPipeline:
             result.steps.append(embed_step)
             vectors = embed_step.data if embed_step.status == StepStatus.SUCCESS else None
 
-        # ---- 10. Store Vectors in Qdrant (non-critical) -----------------
+        # ---- 10. Store Vectors in Weaviate (non-critical) ---------------
         if vectors and self._vector_repo is not None:
-            def _do_qdrant():
+            def _do_vector_store():
                 return self._vector_repo.store_embedded_chunks(paper_id, chunks, vectors)
 
-            qdrant_step = self._run_step("QDRANT_STORE", _do_qdrant)
-            result.steps.append(qdrant_step)
+            vector_step = self._run_step("VECTOR_STORE", _do_vector_store)
+            result.steps.append(vector_step)
             result.vector_count = (
-                qdrant_step.data.get("chunks_stored", 0)
-                if qdrant_step.status == StepStatus.SUCCESS else 0
+                vector_step.data.get("chunks_stored", 0)
+                if vector_step.status == StepStatus.SUCCESS else 0
             )
         else:
             result.steps.append(StepResult(
-                step_name="QDRANT_STORE", status=StepStatus.SKIPPED,
+                step_name="VECTOR_STORE", status=StepStatus.SKIPPED,
                 error="No embeddings to store",
             ))
 

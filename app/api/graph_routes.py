@@ -20,7 +20,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from app.core.config import settings
 from app.storage.neo4j_client import Neo4jClient
-from app.storage.qdrant_client import QdrantClientWrapper
+from app.storage.weaviate_client import WeaviateClientWrapper
 from app.storage.vector_repository import VectorRepository
 from app.storage.graph_repository import GraphRepository
 from app.embeddings.embedder import EmbeddingService
@@ -95,15 +95,21 @@ def get_neo4j_client() -> Neo4jClient:
 def get_vector_repo() -> VectorRepository:
     global _vector_repo
     if _vector_repo is None:
-        qdrant = QdrantClientWrapper(url=settings.QDRANT_URL, api_key=settings.QDRANT_API_KEY)
-        qdrant.connect()
+        weaviate_client = WeaviateClientWrapper(
+            url=settings.WEAVIATE_URL,
+            api_key=settings.WEAVIATE_API_KEY,
+            grpc_port=settings.WEAVIATE_GRPC_PORT,
+            batch_size=settings.WEAVIATE_BATCH_SIZE,
+        )
+        weaviate_client.connect()
         embedder = EmbeddingService(
             provider=settings.EMBEDDING_PROVIDER,
             model_name=settings.EMBEDDING_MODEL,
             batch_size=settings.EMBEDDING_BATCH_SIZE,
         )
         _vector_repo = VectorRepository(
-            qdrant, embedder, collection_name=settings.QDRANT_COLLECTION_NAME
+            weaviate_client, embedder,
+            collection_name=settings.WEAVIATE_COLLECTION_NAME
         )
     return _vector_repo
 

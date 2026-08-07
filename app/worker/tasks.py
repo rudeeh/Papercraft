@@ -4,7 +4,7 @@ import os
 
 from app.core.config import settings
 from app.storage.neo4j_client import Neo4jClient
-from app.storage.qdrant_client import QdrantClientWrapper
+from app.storage.weaviate_client import WeaviateClientWrapper
 from app.storage.vector_repository import VectorRepository
 from app.embeddings.embedder import EmbeddingService
 from app.pipeline.paper_ingestion_pipeline import PaperIngestionPipeline
@@ -37,26 +37,30 @@ def _create_neo4j_client() -> "Neo4jClient | None":
 
 def _create_vector_repo() -> "VectorRepository | None":
     """
-    Attempt to connect to Qdrant.  Returns None on failure so that the
+    Attempt to connect to Weaviate.  Returns None on failure so that the
     pipeline can still run the graph path without vector storage.
     """
     try:
-        qdrant = QdrantClientWrapper(
-            url=settings.QDRANT_URL, api_key=settings.QDRANT_API_KEY
+        weaviate_client = WeaviateClientWrapper(
+            url=settings.WEAVIATE_URL,
+            api_key=settings.WEAVIATE_API_KEY,
+            grpc_port=settings.WEAVIATE_GRPC_PORT,
+            batch_size=settings.WEAVIATE_BATCH_SIZE,
         )
-        qdrant.connect()
+        weaviate_client.connect()
         embedder = EmbeddingService(
             provider=settings.EMBEDDING_PROVIDER,
             model_name=settings.EMBEDDING_MODEL,
             batch_size=settings.EMBEDDING_BATCH_SIZE,
         )
-        logger.info("Qdrant connected")
+        logger.info("Weaviate connected")
         return VectorRepository(
-            qdrant, embedder, collection_name=settings.QDRANT_COLLECTION_NAME
+            weaviate_client, embedder,
+            collection_name=settings.WEAVIATE_COLLECTION_NAME
         )
     except Exception as exc:
         logger.warning(
-            "Qdrant not available -- vector storage will be skipped: %s", exc
+            "Weaviate not available -- vector storage will be skipped: %s", exc
         )
         return None
 
@@ -67,7 +71,7 @@ def process_pdf_task(self, doc_id: str, file_path: str):
     Process an uploaded PDF through the full ingestion pipeline.
 
     Pipeline:  PDF -> OCR -> Parse -> Citations -> Entities -> Relations
-               -> Graph Build -> Neo4j -> Chunk -> Embed -> Qdrant
+               -> Graph Build -> Neo4j -> Chunk -> Embed -> Weaviate
 
     If Neo4j is unreachable the graph steps are gracefully skipped and
     the vector-RAG path still completes.
@@ -76,7 +80,7 @@ def process_pdf_task(self, doc_id: str, file_path: str):
         logger.info("Starting processing for doc_id: %s", doc_id)
         self.update_state(state="PROCESSING", meta={"step": "INITIALIZING", "doc_id": doc_id})
 
-        # --- Neo4j / Qdrant connections (both optional) ---
+        # --- Neo4j / Weaviate connections (both optional) ---
         neo4j_client = _create_neo4j_client()
         vector_repo = _create_vector_repo()
 

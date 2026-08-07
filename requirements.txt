@@ -3,7 +3,7 @@ uvicorn==0.27.1
 python-multipart==0.0.9
 celery[redis]==5.3.6
 redis==5.0.1
-qdrant-client==1.7.3
+weaviate-client==4.22.0
 sentence-transformers==2.3.1
 python-doctr[torch]==0.8.1
 pydantic==2.6.1

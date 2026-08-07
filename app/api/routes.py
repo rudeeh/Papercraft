@@ -40,7 +40,7 @@ async def chat(request: Request, body: ChatRequest):
     model = get_model()
     query_vector = model.encode(body.query).tolist()
 
-    # 2. Search Qdrant
+    # 2. Search Weaviate
     search_results = search_vectors(query_vector, top_k=settings.RAG_TOP_K, doc_id=body.doc_id)
 
     # 3. Construct Context

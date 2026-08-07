@@ -11,7 +11,7 @@ Usage:
     python -m evaluation.run_eval [--questions PATH] [--output PATH]
                                    [--top-k N] [--limit N]
 
-Requires a running Neo4j + Qdrant with at least some papers already
+Requires a running Neo4j + Weaviate with at least some papers already
 ingested (the same services app.worker.tasks and app.api.graph_routes
 use) -- this evaluates retrieval quality against the ontology, not the
 correctness of the ingested content itself.
@@ -146,7 +146,7 @@ def _rate(values: List[bool]) -> float:
 
 
 # ======================================================================
-# CLI entry point -- wires up real Neo4j/Qdrant/LLM services.
+# CLI entry point -- wires up real Neo4j/Weaviate/LLM services.
 # ======================================================================
 
 def load_questions(path: Path) -> List[Dict[str, Any]]:
@@ -177,10 +177,10 @@ def main() -> None:
 
     # Imports are lazy so `--help` works without a configured environment,
     # and so unit tests can import the scoring functions above without
-    # needing Neo4j/Qdrant/LLM settings at all.
+    # needing Neo4j/Weaviate/LLM settings at all.
     from app.core.config import settings
     from app.storage.neo4j_client import Neo4jClient
-    from app.storage.qdrant_client import QdrantClientWrapper
+    from app.storage.weaviate_client import WeaviateClientWrapper
     from app.storage.vector_repository import VectorRepository
     from app.embeddings.embedder import EmbeddingService
     from app.retrieval.graph_retriever import GraphRetriever
@@ -199,13 +199,18 @@ def main() -> None:
     )
     neo4j_client.connect()
 
-    qdrant = QdrantClientWrapper(url=settings.QDRANT_URL, api_key=settings.QDRANT_API_KEY)
-    qdrant.connect()
+    weaviate_client = WeaviateClientWrapper(
+        url=settings.WEAVIATE_URL,
+        api_key=settings.WEAVIATE_API_KEY,
+        grpc_port=settings.WEAVIATE_GRPC_PORT,
+        batch_size=settings.WEAVIATE_BATCH_SIZE,
+    )
+    weaviate_client.connect()
     embedder = EmbeddingService(
         provider=settings.EMBEDDING_PROVIDER, model_name=settings.EMBEDDING_MODEL,
         batch_size=settings.EMBEDDING_BATCH_SIZE,
     )
-    vector_repo = VectorRepository(qdrant, embedder, collection_name=settings.QDRANT_COLLECTION_NAME)
+    vector_repo = VectorRepository(weaviate_client, embedder, collection_name=settings.WEAVIATE_COLLECTION_NAME)
 
     hybrid_retriever = HybridRetriever(
         graph_retriever=GraphRetriever(neo4j_client),

@@ -2,7 +2,7 @@
 Vector Retriever Module (Phase 12)
 
 Thin retrieval-layer wrapper around ``VectorRepository`` (Phase 9) for
-semantic search: embeds the query, runs top-k similarity search in Qdrant,
+semantic search: embeds the query, runs top-k similarity search in Weaviate,
 and supports filtering by paper_id(s) and/or node_type. Results are
 normalized into a flat shape for the hybrid retriever (Phase 13) and answer
 generator (Phase 15).

@@ -97,7 +97,7 @@ class TestPaperIngestionPipeline:
         step_names = {s.step_name for s in result.steps}
         expected_steps = {
             "OCR", "PARSING", "CITATIONS", "ENTITIES", "RELATIONS",
-            "GRAPH_BUILD", "NEO4J_STORE", "CHUNKING", "EMBEDDING", "QDRANT_STORE",
+            "GRAPH_BUILD", "NEO4J_STORE", "CHUNKING", "EMBEDDING", "VECTOR_STORE",
         }
         assert expected_steps.issubset(step_names)
 

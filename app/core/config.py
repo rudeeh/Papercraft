@@ -11,12 +11,13 @@ class Settings(BaseSettings):
     # Redis
     REDIS_URL: str = "redis://redis:6379/0"
 
-    # Qdrant
-    QDRANT_URL: str = "http://qdrant:6333"
-    QDRANT_API_KEY: Optional[str] = None
-    QDRANT_COLLECTION_NAME: str = "documents"
-    QDRANT_DISTANCE_METRIC: str = "cosine"  # "cosine" | "euclid" | "dot"
-    QDRANT_BATCH_SIZE: int = 128
+    # Weaviate (vector store — ADR: Weaviate, replacing Qdrant)
+    WEAVIATE_URL: str = "http://weaviate:8080"
+    WEAVIATE_GRPC_PORT: int = 50051
+    WEAVIATE_API_KEY: Optional[str] = None
+    WEAVIATE_COLLECTION_NAME: str = "Documents"
+    WEAVIATE_DISTANCE_METRIC: str = "cosine"  # "cosine" | "euclid" | "dot"
+    WEAVIATE_BATCH_SIZE: int = 128
 
     # Neo4j  (Phase 8)
     NEO4J_URI: str = "bolt://neo4j:7687"

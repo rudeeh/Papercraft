@@ -6,12 +6,19 @@ services:
     volumes:
       - redis_data:/data
 
-  qdrant:
-    image: qdrant/qdrant:v1.7.4
+  weaviate:
+    image: cr.weaviate.io/semitechnologies/weaviate:1.28.4
+    command: ["--host", "0.0.0.0", "--port", "8080", "--scheme", "http"]
     ports:
-      - "6333:6333"
+      - "8082:8080"    # host 8082 -> container 8080 (8080 is taken by the frontend)
+      - "50051:50051"  # gRPC (used by the v4 python client)
+    environment:
+      - AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true
+      - PERSISTENCE_DATA_PATH=/var/lib/weaviate
+      - QUERY_DEFAULTS_LIMIT=25
+      - DISABLE_TELEMETRY=true
     volumes:
-      - qdrant_data:/qdrant/storage
+      - weaviate_data:/var/lib/weaviate
 
   neo4j:
     image: neo4j:5-community
@@ -43,7 +50,7 @@ services:
     depends_on:
       redis:
         condition: service_started
-      qdrant:
+      weaviate:
         condition: service_started
       neo4j:
         condition: service_healthy
@@ -63,7 +70,7 @@ services:
     depends_on:
       redis:
         condition: service_started
-      qdrant:
+      weaviate:
         condition: service_started
       neo4j:
         condition: service_healthy
@@ -77,7 +84,7 @@ services:
 
 volumes:
   redis_data:
-  qdrant_data:
+  weaviate_data:
   neo4j_data:
   uploads_data:
   torch_cache:
