@@ -1,0 +1,117 @@
+/* Classic, simple color palette */
+:root {
+  --color-black: #1a1a1a;
+  --color-dark-gray: #333;
+  --color-medium-gray: #666;
+  --color-light-gray: #999;
+  --color-border: #e0e0e0;
+  --color-background: #f5f5f5;
+  --color-white: #fff;
+
+  --color-success: #28a745;
+  --color-success-bg: #d4edda;
+  --color-success-border: #c3e6cb;
+
+  --color-error: #dc3545;
+  --color-error-bg: #f8d7da;
+  --color-error-border: #f5c6cb;
+
+  --color-warning: #ffc107;
+  --color-warning-bg: #fff3cd;
+
+  --color-info-bg: #e7f3ff;
+  --color-info-border: #b8daff;
+
+  --font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+  --font-mono: 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Code', monospace;
+
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.07);
+}
+
+/* Reset and base styles */
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html {
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  font-family: var(--font-family);
+  font-size: 1rem;
+  line-height: 1.5;
+  color: var(--color-black);
+  background: var(--color-background);
+}
+
+h1, h2, h3, h4, h5, h6 {
+  margin: 0;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+p {
+  margin: 0 0 1rem;
+}
+
+a {
+  color: var(--color-black);
+  text-decoration: underline;
+}
+
+a:hover {
+  color: var(--color-dark-gray);
+}
+
+button {
+  font-family: inherit;
+}
+
+input, textarea, select {
+  font-family: inherit;
+}
+
+pre, code {
+  font-family: var(--font-mono);
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-background);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-light-gray);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-medium-gray);
+}
+
+/* Focus styles */
+:focus-visible {
+  outline: 2px solid var(--color-black);
+  outline-offset: 2px;
+}
+
+/* Selection styles */
+::selection {
+  background: var(--color-black);
+  color: var(--color-white);
+}

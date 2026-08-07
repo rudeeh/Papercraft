@@ -1,0 +1,100 @@
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  qdrant:
+    image: qdrant/qdrant:v1.7.4
+    ports:
+      - "6333:6333"
+    volumes:
+      - qdrant_data:/qdrant/storage
+
+  neo4j:
+    image: neo4j:5-community
+    ports:
+      - "7474:7474"   # Browser UI
+      - "7687:7687"   # Bolt protocol
+    environment:
+      - NEO4J_AUTH=neo4j/password
+      - NEO4J_PLUGINS=["apoc"]
+    volumes:
+      - neo4j_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "cypher-shell -u neo4j -p password 'RETURN 1' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    # Enable if GPU is available
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+
+  api:
+    build: .
+    command: uvicorn app.api.main:app --host 0.0.0.0 --port 8000 --reload
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    volumes:
+      - .:/app
+      - uploads_data:/app/uploads
+    depends_on:
+      redis:
+        condition: service_started
+      qdrant:
+        condition: service_started
+      neo4j:
+        condition: service_healthy
+
+  worker:
+    build: .
+    # Celery worker command
+    command: celery -A app.worker.celery_app worker --loglevel=info --concurrency=${CELERY_CONCURRENCY:-2}
+    env_file:
+      - .env
+    volumes:
+      - .:/app
+      - uploads_data:/app/uploads
+      # Share torch cache if needed
+      - torch_cache:/root/.cache/torch
+      - huggingface_cache:/root/.cache/huggingface
+    depends_on:
+      redis:
+        condition: service_started
+      qdrant:
+        condition: service_started
+      neo4j:
+        condition: service_healthy
+
+  frontend:
+    build: ./frontend-angular
+    ports:
+      - "8080:80"
+    depends_on:
+      - api
+
+volumes:
+  redis_data:
+  qdrant_data:
+  neo4j_data:
+  ollama_data:
+  uploads_data:
+  torch_cache:
+  huggingface_cache:

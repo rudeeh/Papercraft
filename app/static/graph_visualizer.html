@@ -1,0 +1,1004 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>docRAG — Citation Graph</title>
+<style>
+  *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+
+  :root {
+    --bg: #080808;
+    --surface: #111111;
+    --surface2: #1a1a1a;
+    --border: #222222;
+    --border2: #333333;
+    --text: #e8e8e8;
+    --text2: #999999;
+    --text3: #555555;
+    --radius: 10px;
+  }
+
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap');
+
+  body {
+    font-family: 'Inter', system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    overflow: hidden;
+    height: 100vh;
+    width: 100vw;
+  }
+
+  canvas#graph {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    cursor: grab;
+  }
+  canvas#graph.dragging { cursor: grabbing; }
+
+  /* ── Search bar ── */
+  .search-bar {
+    position: fixed;
+    top: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 20;
+    width: 480px;
+    max-width: calc(100vw - 48px);
+  }
+  .search-bar input {
+    width: 100%;
+    padding: 12px 16px 12px 44px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text);
+    font-family: inherit;
+    font-size: 14px;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+  .search-bar input::placeholder { color: var(--text3); }
+  .search-bar input:focus { border-color: var(--border2); }
+
+  .search-bar .icon {
+    position: absolute;
+    left: 14px; top: 50%;
+    transform: translateY(-50%);
+    color: var(--text3);
+    pointer-events: none;
+  }
+
+  /* Autocomplete dropdown */
+  .autocomplete {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0; right: 0;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    max-height: 360px;
+    overflow-y: auto;
+    display: none;
+    box-shadow: 0 12px 40px rgba(0,0,0,0.5);
+  }
+  .autocomplete.open { display: block; }
+  .autocomplete-item {
+    padding: 12px 16px;
+    cursor: pointer;
+    border-bottom: 1px solid var(--border);
+    transition: background 0.1s;
+  }
+  .autocomplete-item:last-child { border-bottom: none; }
+  .autocomplete-item:hover { background: var(--surface2); }
+  .autocomplete-item .ai-title {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text);
+    line-height: 1.4;
+    margin-bottom: 4px;
+  }
+  .autocomplete-item .ai-meta {
+    font-size: 11px;
+    color: var(--text3);
+  }
+  .autocomplete-item .ai-add {
+    float: right;
+    font-size: 11px;
+    color: var(--text3);
+    border: 1px solid var(--border);
+    padding: 2px 8px;
+    border-radius: 4px;
+    margin-top: 2px;
+    transition: all 0.15s;
+  }
+  .autocomplete-item:hover .ai-add {
+    color: var(--text);
+    border-color: var(--border2);
+  }
+  .ac-loading {
+    padding: 20px;
+    text-align: center;
+    font-size: 12px;
+    color: var(--text3);
+  }
+
+  /* ── Stats bar ── */
+  .stats {
+    position: fixed;
+    top: 24px;
+    right: 24px;
+    z-index: 10;
+    font-size: 12px;
+    color: var(--text3);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 14px;
+    display: flex;
+    gap: 16px;
+  }
+  .stats span { color: var(--text2); font-weight: 500; }
+
+  /* ── Controls (bottom-left) ── */
+  .controls {
+    position: fixed;
+    bottom: 24px;
+    left: 24px;
+    z-index: 10;
+    display: flex;
+    gap: 6px;
+  }
+  .ctrl-btn {
+    width: 36px; height: 36px;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text3);
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .ctrl-btn:hover { color: var(--text); border-color: var(--border2); }
+
+  /* ── Hint ── */
+  .hint {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    z-index: 10;
+    font-size: 11px;
+    color: var(--text3);
+  }
+
+  /* ── Detail panel (right side) ── */
+  .panel {
+    position: fixed;
+    top: 0; right: 0;
+    width: 380px;
+    height: 100vh;
+    background: var(--surface);
+    border-left: 1px solid var(--border);
+    z-index: 15;
+    transform: translateX(100%);
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    overflow-y: auto;
+    padding: 28px 24px;
+  }
+  .panel.open { transform: translateX(0); }
+
+  .panel .p-close {
+    position: absolute;
+    top: 16px; right: 16px;
+    width: 28px; height: 28px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text3);
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: all 0.15s;
+  }
+  .panel .p-close:hover { color: var(--text); border-color: var(--border2); }
+
+  .panel h2 {
+    font-size: 16px;
+    font-weight: 500;
+    line-height: 1.6;
+    margin-bottom: 16px;
+    padding-right: 36px;
+  }
+  .panel .p-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+  }
+  .panel .p-row .label { color: var(--text3); }
+  .panel .p-row .value { color: var(--text); font-weight: 500; text-align: right; max-width: 60%; }
+  .panel .p-row .value a { color: var(--text2); text-decoration: none; }
+  .panel .p-row .value a:hover { color: var(--text); text-decoration: underline; }
+
+  .panel .p-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 20px;
+  }
+  .panel .p-btn {
+    flex: 1;
+    padding: 10px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text2);
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s;
+    display: flex; align-items: center; justify-content: center; gap: 6px;
+  }
+  .panel .p-btn:hover { background: var(--surface2); color: var(--text); border-color: var(--border2); }
+  .panel .p-btn.primary { background: var(--text); color: var(--bg); border-color: var(--text); }
+  .panel .p-btn.primary:hover { opacity: 0.85; }
+  .panel .p-btn.danger:hover { border-color: #444; color: #ccc; }
+
+  .panel .p-section { margin-top: 28px; }
+  .panel .p-section h3 {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text3);
+    margin-bottom: 12px;
+  }
+  .panel .p-abstract {
+    font-size: 13px;
+    line-height: 1.7;
+    color: var(--text2);
+  }
+  .panel .p-link {
+    display: block;
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 13px;
+    color: var(--text2);
+    cursor: pointer;
+    transition: all 0.1s;
+    margin-bottom: 3px;
+    line-height: 1.4;
+  }
+  .panel .p-link:hover { background: var(--surface2); color: var(--text); }
+  .panel .p-link .pl-year { font-size: 11px; color: var(--text3); margin-left: 6px; }
+  .panel .p-link .pl-arrow { font-size: 11px; color: var(--text3); margin-right: 6px; display: inline-block; width: 14px; }
+
+  /* ── Notes textarea ── */
+  .panel .p-notes {
+    width: 100%;
+    min-height: 80px;
+    padding: 10px 12px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font-family: inherit;
+    font-size: 13px;
+    line-height: 1.6;
+    resize: vertical;
+    outline: none;
+    margin-top: 8px;
+  }
+  .panel .p-notes::placeholder { color: var(--text3); }
+  .panel .p-notes:focus { border-color: var(--border2); }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+</style>
+</head>
+<body>
+
+<canvas id="graph"></canvas>
+
+<!-- Search -->
+<div class="search-bar">
+  <svg class="icon" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+  <input type="text" id="searchInput" placeholder="Search a paper to add to your graph..." autocomplete="off">
+  <div class="autocomplete" id="autocomplete"></div>
+</div>
+
+<!-- Stats -->
+<div class="stats">
+  <div><span id="nodeCount">0</span> papers</div>
+  <div><span id="edgeCount">0</span> links</div>
+</div>
+
+<!-- Zoom controls -->
+<div class="controls">
+  <button class="ctrl-btn" id="btnZoomIn" title="Zoom in">
+    <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+  </button>
+  <button class="ctrl-btn" id="btnZoomOut" title="Zoom out">
+    <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M5 12h14"/></svg>
+  </button>
+  <button class="ctrl-btn" id="btnFit" title="Fit all nodes">
+    <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>
+  </button>
+  <button class="ctrl-btn" id="btnClear" title="Clear all">
+    <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+  </button>
+</div>
+
+<!-- Hint -->
+<div class="hint">Scroll to zoom · Drag to pan · Click node to inspect</div>
+
+<!-- Detail panel -->
+<div class="panel" id="panel">
+  <button class="p-close" id="panelClose">
+    <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg>
+  </button>
+  <h2 id="pTitle">—</h2>
+  <div class="p-row"><span class="label">Authors</span><span class="value" id="pAuthors">—</span></div>
+  <div class="p-row"><span class="label">Year</span><span class="value" id="pYear">—</span></div>
+  <div class="p-row"><span class="label">Citations</span><span class="value" id="pCitCount">—</span></div>
+  <div class="p-row"><span class="label">Paper ID</span><span class="value" id="pId">—</span></div>
+  <div class="p-row"><span class="label">Link</span><span class="value" id="pUrl">—</span></div>
+  <div class="p-actions">
+    <button class="p-btn primary" id="btnExpandRefs">↓ References</button>
+    <button class="p-btn" id="btnExpandCit">↑ Cited by</button>
+    <button class="p-btn danger" id="btnRemove">Remove</button>
+  </div>
+  <div class="p-section">
+    <h3>Abstract</h3>
+    <div class="p-abstract" id="pAbstract">—</div>
+  </div>
+  <div class="p-section">
+    <h3>Notes</h3>
+    <textarea class="p-notes" id="pNotes" placeholder="Add your notes about this paper..."></textarea>
+  </div>
+  <div class="p-section">
+    <h3>Connected Papers</h3>
+    <div id="pConnected"></div>
+  </div>
+</div>
+
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<script>
+(() => {
+  "use strict";
+
+  // ═══════════════════════════════════════════════════════════
+  //  STATE
+  // ═══════════════════════════════════════════════════════════
+  const nodes = [];
+  const edges = [];
+  const nodeMap = {};  // paperId -> node
+  let simulation = null;
+  let hoveredNode = null;
+  let selectedNode = null;
+  let transform = d3.zoomIdentity;
+
+  // Persist notes to localStorage
+  const STORAGE_KEY = "docrag_graph_notes";
+  function loadNotes() {
+    try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || {}; } catch { return {}; }
+  }
+  function saveNotes(notes) {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(notes));
+  }
+  const allNotes = loadNotes();
+
+  // ═══════════════════════════════════════════════════════════
+  //  SEMANTIC SCHOLAR API
+  // ═══════════════════════════════════════════════════════════
+  const S2 = "https://api.semanticscholar.org/graph/v1";
+
+  async function s2Search(query) {
+    const r = await fetch(
+      `${S2}/paper/search?query=${encodeURIComponent(query)}&limit=8&fields=paperId,title,authors,year,citationCount`
+    );
+    if (!r.ok) throw new Error("Search failed");
+    const d = await r.json();
+    return (d.data || []).map(p => ({
+      paperId: p.paperId,
+      title: p.title,
+      authors: (p.authors || []).map(a => a.name).join(", "),
+      year: p.year || "—",
+      citationCount: p.citationCount || 0,
+      abstract: "",
+      url: `https://www.semanticscholar.org/paper/${p.paperId}`,
+    }));
+  }
+
+  async function s2Paper(paperId) {
+    const r = await fetch(
+      `${S2}/paper/${paperId}?fields=paperId,title,authors,year,citationCount,abstract,url,referenceCount`
+    );
+    if (!r.ok) throw new Error("Paper fetch failed");
+    const p = await r.json();
+    return {
+      paperId: p.paperId,
+      title: p.title || "Untitled",
+      authors: (p.authors || []).map(a => a.name).join(", "),
+      year: p.year || "—",
+      citationCount: p.citationCount || 0,
+      abstract: p.abstract || "",
+      url: p.url || `https://www.semanticscholar.org/paper/${p.paperId}`,
+      referenceCount: p.referenceCount || 0,
+    };
+  }
+
+  async function s2References(paperId) {
+    const r = await fetch(
+      `${S2}/paper/${paperId}/references?fields=paperId,title,authors,year,citationCount&limit=40`
+    );
+    if (!r.ok) return [];
+    const d = await r.json();
+    return (d.data || []).map(item => {
+      const c = item.citedPaper || {};
+      return {
+        paperId: c.paperId,
+        title: c.title || "Untitled",
+        authors: (c.authors || []).map(a => a.name).join(", "),
+        year: c.year || "—",
+        citationCount: c.citationCount || 0,
+        abstract: "",
+        url: `https://www.semanticscholar.org/paper/${c.paperId}`,
+      };
+    }).filter(p => p.paperId);
+  }
+
+  async function s2Citations(paperId) {
+    const r = await fetch(
+      `${S2}/paper/${paperId}/citations?fields=paperId,title,authors,year,citationCount&limit=40`
+    );
+    if (!r.ok) return [];
+    const d = await r.json();
+    return (d.data || []).map(item => {
+      const c = item.citingPaper || {};
+      return {
+        paperId: c.paperId,
+        title: c.title || "Untitled",
+        authors: (c.authors || []).map(a => a.name).join(", "),
+        year: c.year || "—",
+        citationCount: c.citationCount || 0,
+        abstract: "",
+        url: `https://www.semanticscholar.org/paper/${c.paperId}`,
+      };
+    }).filter(p => p.paperId);
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  //  GRAPH MANAGEMENT
+  // ═══════════════════════════════════════════════════════════
+  function addNode(data) {
+    if (nodeMap[data.paperId]) return nodeMap[data.paperId];
+    const node = {
+      ...data,
+      notes: allNotes[data.paperId] || "",
+      x: W / 2 + (Math.random() - 0.5) * 200,
+      y: H / 2 + (Math.random() - 0.5) * 200,
+      _radius: 6 + Math.min(Math.log2((data.citationCount || 1) + 1) * 2, 10),
+    };
+    nodes.push(node);
+    nodeMap[data.paperId] = node;
+    updateStats();
+    return node;
+  }
+
+  function addEdge(sourceId, targetId) {
+    if (sourceId === targetId) return;
+    const exists = edges.some(e =>
+      (e.source.paperId === sourceId && e.target.paperId === targetId) ||
+      (e.source.paperId === targetId && e.target.paperId === sourceId)
+    );
+    if (exists) return;
+    const s = nodeMap[sourceId], t = nodeMap[targetId];
+    if (!s || !t) return;
+    edges.push({ source: s, target: t });
+    updateStats();
+  }
+
+  function removeNode(paperId) {
+    const idx = nodes.findIndex(n => n.paperId === paperId);
+    if (idx === -1) return;
+    nodes.splice(idx, 1);
+    // Remove edges
+    for (let i = edges.length - 1; i >= 0; i--) {
+      if (edges[i].source.paperId === paperId || edges[i].target.paperId === paperId) {
+        edges.splice(i, 1);
+      }
+    }
+    delete nodeMap[paperId];
+    if (selectedNode && selectedNode.paperId === paperId) {
+      selectedNode = null;
+      document.getElementById("panel").classList.remove("open");
+    }
+    updateStats();
+    restartSimulation();
+  }
+
+  function clearAll() {
+    nodes.length = 0;
+    edges.length = 0;
+    Object.keys(nodeMap).forEach(k => delete nodeMap[k]);
+    selectedNode = null;
+    hoveredNode = null;
+    document.getElementById("panel").classList.remove("open");
+    updateStats();
+    restartSimulation();
+  }
+
+  function updateStats() {
+    document.getElementById("nodeCount").textContent = nodes.length;
+    document.getElementById("edgeCount").textContent = edges.length;
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  //  CANVAS SETUP
+  // ═══════════════════════════════════════════════════════════
+  const canvas = document.getElementById("graph");
+  const ctx = canvas.getContext("2d");
+  let W, H, dpr;
+
+  function resize() {
+    dpr = window.devicePixelRatio || 1;
+    W = window.innerWidth;
+    H = window.innerHeight;
+    canvas.width = W * dpr;
+    canvas.height = H * dpr;
+    canvas.style.width = W + "px";
+    canvas.style.height = H + "px";
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+  window.addEventListener("resize", resize);
+  resize();
+
+  // ═══════════════════════════════════════════════════════════
+  //  SIMULATION
+  // ═══════════════════════════════════════════════════════════
+  function restartSimulation() {
+    if (simulation) simulation.stop();
+
+    if (nodes.length === 0) { simulation = null; return; }
+
+    simulation = d3.forceSimulation(nodes)
+      .force("link", d3.forceLink(edges).id(d => d.paperId).distance(120).strength(0.08))
+      .force("charge", d3.forceManyBody().strength(-200).distanceMax(500))
+      .force("center", d3.forceCenter(W / 2, H / 2).strength(0.015))
+      .force("collision", d3.forceCollide().radius(d => (d._radius || 8) + 20))
+      .force("x", d3.forceX(W / 2).strength(0.008))
+      .force("y", d3.forceY(H / 2).strength(0.008))
+      .alphaDecay(0.02)
+      .velocityDecay(0.4);
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  //  ZOOM
+  // ═══════════════════════════════════════════════════════════
+  function setupZoom() {
+    const zoom = d3.zoom()
+      .scaleExtent([0.05, 4])
+      .on("zoom", e => { transform = e.transform; });
+    d3.select(canvas).call(zoom);
+    window._zoom = zoom;
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  //  RENDER
+  // ═══════════════════════════════════════════════════════════
+  function render() {
+    ctx.save();
+    ctx.clearRect(0, 0, W, H);
+    ctx.fillStyle = "#080808";
+    ctx.fillRect(0, 0, W, H);
+
+    // Subtle grid
+    ctx.save();
+    ctx.translate(transform.x, transform.y);
+    ctx.scale(transform.k, transform.k);
+
+    const gridSize = 60;
+    ctx.strokeStyle = "rgba(255,255,255,0.015)";
+    ctx.lineWidth = 0.5;
+    const startX = Math.floor(-transform.x / transform.k / gridSize) * gridSize - gridSize;
+    const startY = Math.floor(-transform.y / transform.k / gridSize) * gridSize - gridSize;
+    const endX = startX + W / transform.k + gridSize * 2;
+    const endY = startY + H / transform.k + gridSize * 2;
+    for (let x = startX; x < endX; x += gridSize) {
+      ctx.beginPath(); ctx.moveTo(x, startY); ctx.lineTo(x, endY); ctx.stroke();
+    }
+    for (let y = startY; y < endY; y += gridSize) {
+      ctx.beginPath(); ctx.moveTo(startX, y); ctx.lineTo(endX, y); ctx.stroke();
+    }
+
+    // Neighbor set for selection highlighting
+    const neighborSet = new Set();
+    if (selectedNode) {
+      neighborSet.add(selectedNode.paperId);
+      for (const e of edges) {
+        if (e.source.paperId === selectedNode.paperId) neighborSet.add(e.target.paperId);
+        if (e.target.paperId === selectedNode.paperId) neighborSet.add(e.source.paperId);
+      }
+    }
+
+    // ── Edges ──
+    for (const e of edges) {
+      const isHover = hoveredNode && (e.source.paperId === hoveredNode.paperId || e.target.paperId === hoveredNode.paperId);
+      const isSel = selectedNode && (e.source.paperId === selectedNode.paperId || e.target.paperId === selectedNode.paperId);
+      const dimmed = (selectedNode && !isSel);
+
+      let alpha = 0.06;
+      if (isHover) alpha = 0.25;
+      if (isSel) alpha = 0.2;
+      if (dimmed) alpha = 0.02;
+
+      ctx.strokeStyle = `rgba(255,255,255,${alpha})`;
+      ctx.lineWidth = isHover || isSel ? 1 : 0.5;
+      ctx.beginPath();
+      ctx.moveTo(e.source.x, e.source.y);
+      ctx.lineTo(e.target.x, e.target.y);
+      ctx.stroke();
+
+      // Arrow direction indicator for selected
+      if (isSel) {
+        const dx = e.target.x - e.source.x;
+        const dy = e.target.y - e.source.y;
+        const len = Math.sqrt(dx * dx + dy * dy);
+        if (len > 0) {
+          const mx = (e.source.x + e.target.x) / 2;
+          const my = (e.source.y + e.target.y) / 2;
+          const angle = Math.atan2(dy, dx);
+          const arrowSize = 4;
+          ctx.fillStyle = `rgba(255,255,255,${alpha})`;
+          ctx.beginPath();
+          ctx.moveTo(mx + Math.cos(angle) * arrowSize, my + Math.sin(angle) * arrowSize);
+          ctx.lineTo(mx + Math.cos(angle + 2.5) * arrowSize, my + Math.sin(angle + 2.5) * arrowSize);
+          ctx.lineTo(mx + Math.cos(angle - 2.5) * arrowSize, my + Math.sin(angle - 2.5) * arrowSize);
+          ctx.closePath();
+          ctx.fill();
+        }
+      }
+    }
+
+    // ── Nodes ──
+    for (const node of nodes) {
+      const isNeighbor = neighborSet.has(node.paperId);
+      const isHover = hoveredNode && hoveredNode.paperId === node.paperId;
+      const isSel = selectedNode && selectedNode.paperId === node.paperId;
+      const dimmed = (selectedNode && !isNeighbor);
+
+      let alpha = 0.85;
+      let r = node._radius || 8;
+      if (dimmed) alpha = 0.08;
+      if (isNeighbor && !isSel) alpha = 0.7;
+      if (isHover) { alpha = 1; r *= 1.4; }
+      if (isSel) { alpha = 1; r *= 1.5; }
+
+      // Subtle shadow
+      if (alpha > 0.1) {
+        ctx.fillStyle = `rgba(255,255,255,${alpha * 0.05})`;
+        ctx.beginPath();
+        ctx.arc(node.x, node.y, r + 8, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // Node circle
+      ctx.fillStyle = `rgba(255,255,255,${alpha})`;
+      ctx.beginPath();
+      ctx.arc(node.x, node.y, r, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Selected ring
+      if (isSel) {
+        ctx.strokeStyle = `rgba(255,255,255,0.4)`;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.arc(node.x, node.y, r + 4, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+
+      // Label — only when zoomed in enough or hovered/selected
+      const showLabel = isHover || isSel || (transform.k > 0.8 && !dimmed) || (transform.k > 1.2);
+      if (showLabel && alpha > 0.1) {
+        const fontSize = isHover || isSel ? 13 : 11;
+        ctx.font = `500 ${fontSize}px Inter, system-ui, sans-serif`;
+        ctx.fillStyle = `rgba(255,255,255,${alpha * 0.9})`;
+        ctx.textAlign = "center";
+
+        // Truncate title
+        let title = node.title;
+        const maxW = 180 / transform.k;
+        while (ctx.measureText(title).width > maxW && title.length > 5) {
+          title = title.slice(0, -4) + "…";
+        }
+        ctx.fillText(title, node.x, node.y + r + 16);
+
+        // Year below
+        if (isHover || isSel) {
+          ctx.font = `300 10px Inter, system-ui, sans-serif`;
+          ctx.fillStyle = `rgba(255,255,255,${alpha * 0.4})`;
+          ctx.fillText(`${node.year}  ·  ${node.citationCount} citations`, node.x, node.y + r + 30);
+        }
+      }
+    }
+
+    // ── Empty state ──
+    if (nodes.length === 0) {
+      ctx.textAlign = "center";
+      ctx.font = "300 16px Inter, system-ui, sans-serif";
+      ctx.fillStyle = "rgba(255,255,255,0.15)";
+      ctx.fillText("Search for a paper above to start building your citation graph", W / 2 / transform.k, H / 2 / transform.k);
+    }
+
+    ctx.restore();
+    requestAnimationFrame(render);
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  //  MOUSE INTERACTIONS
+  // ═══════════════════════════════════════════════════════════
+  function screenToGraph(sx, sy) {
+    return [(sx - transform.x) / transform.k, (sy - transform.y) / transform.k];
+  }
+
+  function findNode(sx, sy) {
+    const [gx, gy] = screenToGraph(sx, sy);
+    let closest = null, minDist = 24 / transform.k;
+    for (const n of nodes) {
+      const dx = n.x - gx, dy = n.y - gy;
+      const d = Math.sqrt(dx * dx + dy * dy);
+      const hitR = (n._radius || 8) + 6 / transform.k;
+      if (d < hitR && d < minDist) { minDist = d; closest = n; }
+    }
+    return closest;
+  }
+
+  canvas.addEventListener("mousemove", e => {
+    const node = findNode(e.clientX, e.clientY);
+    hoveredNode = node;
+    canvas.style.cursor = node ? "pointer" : "grab";
+  });
+
+  canvas.addEventListener("mouseleave", () => { hoveredNode = null; });
+
+  canvas.addEventListener("click", e => {
+    const node = findNode(e.clientX, e.clientY);
+    if (node) {
+      selectedNode = node;
+      openPanel(node);
+    } else {
+      selectedNode = null;
+      document.getElementById("panel").classList.remove("open");
+    }
+  });
+
+  // ═══════════════════════════════════════════════════════════
+  //  DETAIL PANEL
+  // ═══════════════════════════════════════════════════════════
+  function openPanel(node) {
+    document.getElementById("pTitle").textContent = node.title;
+    document.getElementById("pAuthors").textContent = node.authors.split(",")[0] + (node.authors.includes(",") ? " et al." : "");
+    document.getElementById("pYear").textContent = node.year;
+    document.getElementById("pCitCount").textContent = (node.citationCount || 0).toLocaleString();
+    document.getElementById("pId").textContent = node.paperId;
+    document.getElementById("pUrl").innerHTML = node.url ? `<a href="${node.url}" target="_blank">Open ↗</a>` : "—";
+    document.getElementById("pAbstract").textContent = node.abstract || "No abstract available.";
+
+    const notesEl = document.getElementById("pNotes");
+    notesEl.value = node.notes || "";
+
+    // Connected papers
+    const connected = [];
+    for (const e of edges) {
+      if (e.source.paperId === node.paperId) connected.push({ node: e.target, dir: "ref" });
+      if (e.target.paperId === node.paperId) connected.push({ node: e.source, dir: "cit" });
+    }
+    const container = document.getElementById("pConnected");
+    container.innerHTML = "";
+    for (const { node: cn, dir } of connected) {
+      const el = document.createElement("div");
+      el.className = "p-link";
+      el.innerHTML = `<span class="pl-arrow">${dir === "ref" ? "↓" : "↑"}</span>${cn.title}<span class="pl-year">${cn.year}</span>`;
+      el.addEventListener("click", () => {
+        selectedNode = cn;
+        openPanel(cn);
+      });
+      container.appendChild(el);
+    }
+
+    document.getElementById("panel").classList.add("open");
+  }
+
+  document.getElementById("panelClose").addEventListener("click", () => {
+    selectedNode = null;
+    document.getElementById("panel").classList.remove("open");
+  });
+
+  // Notes save on input
+  document.getElementById("pNotes").addEventListener("input", e => {
+    if (!selectedNode) return;
+    selectedNode.notes = e.target.value;
+    allNotes[selectedNode.paperId] = e.target.value;
+    saveNotes(allNotes);
+  });
+
+  // ── Expand references ──
+  document.getElementById("btnExpandRefs").addEventListener("click", async () => {
+    if (!selectedNode) return;
+    const btn = document.getElementById("btnExpandRefs");
+    btn.textContent = "Loading…";
+    btn.disabled = true;
+    try {
+      const refs = await s2References(selectedNode.paperId);
+      for (const ref of refs) {
+        const n = addNode(ref);
+        addEdge(selectedNode.paperId, n.paperId);
+      }
+      restartSimulation();
+      openPanel(selectedNode);
+    } catch (err) {
+      btn.textContent = "Error — retry";
+    }
+    btn.innerHTML = "↓ References";
+    btn.disabled = false;
+  });
+
+  // ── Expand citations ──
+  document.getElementById("btnExpandCit").addEventListener("click", async () => {
+    if (!selectedNode) return;
+    const btn = document.getElementById("btnExpandCit");
+    btn.textContent = "Loading…";
+    btn.disabled = true;
+    try {
+      const cits = await s2Citations(selectedNode.paperId);
+      for (const cit of cits) {
+        const n = addNode(cit);
+        addEdge(n.paperId, selectedNode.paperId);
+      }
+      restartSimulation();
+      openPanel(selectedNode);
+    } catch (err) {
+      btn.textContent = "Error — retry";
+    }
+    btn.innerHTML = "↑ Cited by";
+    btn.disabled = false;
+  });
+
+  // ── Remove ──
+  document.getElementById("btnRemove").addEventListener("click", () => {
+    if (!selectedNode) return;
+    const id = selectedNode.paperId;
+    selectedNode = null;
+    document.getElementById("panel").classList.remove("open");
+    removeNode(id);
+    restartSimulation();
+  });
+
+  // ═══════════════════════════════════════════════════════════
+  //  SEARCH & AUTOCOMPLETE
+  // ═══════════════════════════════════════════════════════════
+  const searchInput = document.getElementById("searchInput");
+  const acDiv = document.getElementById("autocomplete");
+  let searchTimer;
+
+  searchInput.addEventListener("input", () => {
+    clearTimeout(searchTimer);
+    const q = searchInput.value.trim();
+    if (q.length < 2) { acDiv.classList.remove("open"); return; }
+
+    searchTimer = setTimeout(async () => {
+      acDiv.innerHTML = '<div class="ac-loading">Searching Semantic Scholar…</div>';
+      acDiv.classList.add("open");
+      try {
+        const results = await s2Search(q);
+        if (results.length === 0) {
+          acDiv.innerHTML = '<div class="ac-loading">No results found</div>';
+          return;
+        }
+        acDiv.innerHTML = "";
+        for (const r of results) {
+          const already = !!nodeMap[r.paperId];
+          const item = document.createElement("div");
+          item.className = "autocomplete-item";
+          item.innerHTML = `
+            <div class="ai-title">${r.title}</div>
+            <div class="ai-meta">
+              ${r.authors.split(",")[0]}${r.authors.includes(",") ? " et al." : ""} · ${r.year} · ${r.citationCount} citations
+              <span class="ai-add">${already ? "Added ✓" : "+ Add"}</span>
+            </div>`;
+          if (!already) {
+            item.addEventListener("click", async () => {
+              acDiv.classList.remove("open");
+              searchInput.value = "";
+              await addPaperToGraph(r.paperId);
+            });
+          }
+          acDiv.appendChild(item);
+        }
+      } catch {
+        acDiv.innerHTML = '<div class="ac-loading">Search failed — check your connection</div>';
+      }
+    }, 350);
+  });
+
+  searchInput.addEventListener("keydown", e => {
+    if (e.key === "Escape") {
+      acDiv.classList.remove("open");
+      searchInput.blur();
+    }
+  });
+
+  // Close autocomplete on outside click
+  document.addEventListener("click", e => {
+    if (!e.target.closest(".search-bar")) acDiv.classList.remove("open");
+  });
+
+  // ═══════════════════════════════════════════════════════════
+  //  ADD PAPER (full flow: fetch details + add node + expand refs)
+  // ═══════════════════════════════════════════════════════════
+  async function addPaperToGraph(paperId) {
+    try {
+      const paper = await s2Paper(paperId);
+      const node = addNode(paper);
+      // Auto-expand references
+      try {
+        const refs = await s2References(paperId);
+        for (const ref of refs.slice(0, 20)) {
+          const rn = addNode(ref);
+          addEdge(paperId, rn.paperId);
+        }
+      } catch { /* references optional */ }
+      restartSimulation();
+      selectedNode = node;
+      openPanel(node);
+    } catch (err) {
+      console.error("Failed to add paper:", err);
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  //  ZOOM BUTTONS
+  // ═══════════════════════════════════════════════════════════
+  document.getElementById("btnZoomIn").addEventListener("click", () => {
+    d3.select(canvas).transition().duration(300).call(window._zoom.scaleBy, 1.5);
+  });
+  document.getElementById("btnZoomOut").addEventListener("click", () => {
+    d3.select(canvas).transition().duration(300).call(window._zoom.scaleBy, 0.65);
+  });
+  document.getElementById("btnFit").addEventListener("click", () => {
+    if (nodes.length === 0) return;
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    for (const n of nodes) {
+      if (n.x < minX) minX = n.x;
+      if (n.x > maxX) maxX = n.x;
+      if (n.y < minY) minY = n.y;
+      if (n.y > maxY) maxY = n.y;
+    }
+    const pad = 120;
+    const dx = maxX - minX + pad * 2;
+    const dy = maxY - minY + pad * 2;
+    const scale = Math.min(W / dx, H / dy, 2);
+    const cx = (minX + maxX) / 2;
+    const cy = (minY + maxY) / 2;
+    d3.select(canvas).transition().duration(500).call(
+      window._zoom.transform,
+      d3.zoomIdentity.translate(W / 2, H / 2).scale(scale).translate(-cx, -cy)
+    );
+  });
+  document.getElementById("btnClear").addEventListener("click", clearAll);
+
+  // ═══════════════════════════════════════════════════════════
+  //  INIT
+  // ═══════════════════════════════════════════════════════════
+  setupZoom();
+  render();
+
+})();
+</script>
+</body>
+</html>

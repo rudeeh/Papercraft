@@ -1,0 +1,50 @@
+# Frontend files (not needed in Docker)
+frontend/
+
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+.env
+.venv
+env/
+venv/
+
+# Tests
+tests/
+
+# Documentation
+*.md
+README.md
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Uploads (will be created in container)
+uploads/
+
+# Scripts
+scripts/
+
+# Docker
+Dockerfile
+docker-compose.yml
+.dockerignore
+Makefile

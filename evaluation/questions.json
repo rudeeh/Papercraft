@@ -1,0 +1,434 @@
+[
+  {
+    "id": "exp-001",
+    "category": "EXPLANATION",
+    "question": "Explain how self-attention works.",
+    "expected_entities": ["Self-Attention"],
+    "expected_relation": null,
+    "expected_sources": []
+  },
+  {
+    "id": "exp-002",
+    "category": "EXPLANATION",
+    "question": "Explain why dropout helps prevent overfitting.",
+    "expected_entities": [],
+    "expected_relation": null,
+    "expected_sources": []
+  },
+  {
+    "id": "exp-003",
+    "category": "EXPLANATION",
+    "question": "Explain the vanishing gradient problem in RNNs.",
+    "expected_entities": [],
+    "expected_relation": null,
+    "expected_sources": []
+  },
+  {
+    "id": "exp-004",
+    "category": "EXPLANATION",
+    "question": "Explain how batch normalization stabilizes training.",
+    "expected_entities": [],
+    "expected_relation": null,
+    "expected_sources": []
+  },
+  {
+    "id": "exp-005",
+    "category": "EXPLANATION",
+    "question": "Explain how word embeddings represent semantic meaning.",
+    "expected_entities": [],
+    "expected_relation": null,
+    "expected_sources": []
+  },
+  {
+    "id": "exp-006",
+    "category": "EXPLANATION",
+    "question": "Explain the encoder-decoder architecture used in the Transformer.",
+    "expected_entities": ["Transformer"],
+    "expected_relation": null,
+    "expected_sources": ["paper_arxiv_1706.03762"]
+  },
+  {
+    "id": "exp-007",
+    "category": "EXPLANATION",
+    "question": "Explain how convolutional layers extract image features in a CNN.",
+    "expected_entities": ["CNN"],
+    "expected_relation": null,
+    "expected_sources": []
+  },
+  {
+    "id": "exp-008",
+    "category": "EXPLANATION",
+    "question": "Explain why transfer learning is effective for NLP tasks.",
+    "expected_entities": [],
+    "expected_relation": null,
+    "expected_sources": []
+  },
+  {
+    "id": "exp-009",
+    "category": "EXPLANATION",
+    "question": "Explain how Multi-Head Attention lets a model attend to different representation subspaces.",
+    "expected_entities": ["Multi-Head Attention"],
+    "expected_relation": null,
+    "expected_sources": []
+  },
+  {
+    "id": "comp-001",
+    "category": "COMPARISON",
+    "question": "Compare BERT and GPT.",
+    "expected_entities": ["BERT", "GPT"],
+    "expected_relation": "COMPARES_TO",
+    "expected_sources": []
+  },
+  {
+    "id": "comp-002",
+    "category": "COMPARISON",
+    "question": "Compare CNNs and RNNs for sequence modeling.",
+    "expected_entities": ["CNN"],
+    "expected_relation": "COMPARES_TO",
+    "expected_sources": []
+  },
+  {
+    "id": "comp-003",
+    "category": "COMPARISON",
+    "question": "What is the difference between LSTM and a standard Neural Network?",
+    "expected_entities": ["LSTM", "Neural Network"],
+    "expected_relation": "COMPARES_TO",
+    "expected_sources": []
+  },
+  {
+    "id": "comp-004",
+    "category": "COMPARISON",
+    "question": "Which methods outperform ResNet on image classification?",
+    "expected_entities": ["ResNet"],
+    "expected_relation": "IMPROVES_UPON",
+    "expected_sources": ["paper_arxiv_1512.03385"]
+  },
+  {
+    "id": "comp-005",
+    "category": "COMPARISON",
+    "question": "Compare the Transformer and RNN architectures for machine translation.",
+    "expected_entities": ["Transformer"],
+    "expected_relation": "COMPARES_TO",
+    "expected_sources": ["paper_arxiv_1706.03762"]
+  },
+  {
+    "id": "comp-006",
+    "category": "COMPARISON",
+    "question": "Which methods improved upon the Transformer?",
+    "expected_entities": ["Transformer"],
+    "expected_relation": "IMPROVES_UPON",
+    "expected_sources": ["paper_arxiv_1706.03762"]
+  },
+  {
+    "id": "comp-007",
+    "category": "COMPARISON",
+    "question": "Compare supervised and self-supervised pretraining approaches.",
+    "expected_entities": [],
+    "expected_relation": null,
+    "expected_sources": []
+  },
+  {
+    "id": "comp-008",
+    "category": "COMPARISON",
+    "question": "Is a Random Forest or an SVM better for text classification?",
+    "expected_entities": ["Random Forest", "SVM"],
+    "expected_relation": "COMPARES_TO",
+    "expected_sources": []
+  },
+  {
+    "id": "comp-009",
+    "category": "COMPARISON",
+    "question": "Compare the Transformer to earlier sequence-to-sequence models built on LSTM.",
+    "expected_entities": ["Transformer", "LSTM"],
+    "expected_relation": "COMPARES_TO",
+    "expected_sources": []
+  },
+  {
+    "id": "cite-001",
+    "category": "CITATION",
+    "question": "Which papers cite the Transformer paper?",
+    "expected_entities": [],
+    "expected_relation": "CITES",
+    "expected_sources": ["paper_arxiv_1706.03762"]
+  },
+  {
+    "id": "cite-002",
+    "category": "CITATION",
+    "question": "Who cites \"Attention Is All You Need\"?",
+    "expected_entities": [],
+    "expected_relation": "CITES",
+    "expected_sources": ["paper_arxiv_1706.03762"]
+  },
+  {
+    "id": "cite-003",
+    "category": "CITATION",
+    "question": "What papers reference BERT?",
+    "expected_entities": ["BERT"],
+    "expected_relation": "CITES",
+    "expected_sources": ["paper_arxiv_1810.04805"]
+  },
+  {
+    "id": "cite-004",
+    "category": "CITATION",
+    "question": "Which papers cite GPT-3?",
+    "expected_entities": ["GPT"],
+    "expected_relation": "CITES",
+    "expected_sources": ["paper_arxiv_2005.14165"]
+  },
+  {
+    "id": "cite-005",
+    "category": "CITATION",
+    "question": "Show me the references for the ResNet paper.",
+    "expected_entities": ["ResNet"],
+    "expected_relation": "CITES",
+    "expected_sources": ["paper_arxiv_1512.03385"]
+  },
+  {
+    "id": "cite-006",
+    "category": "CITATION",
+    "question": "Which papers are cited by BERT?",
+    "expected_entities": ["BERT"],
+    "expected_relation": "CITES",
+    "expected_sources": ["paper_arxiv_1810.04805"]
+  },
+  {
+    "id": "cite-007",
+    "category": "CITATION",
+    "question": "Who cites the original LSTM paper?",
+    "expected_entities": ["LSTM"],
+    "expected_relation": "CITES",
+    "expected_sources": []
+  },
+  {
+    "id": "cite-008",
+    "category": "CITATION",
+    "question": "What references does the Transformer paper cite?",
+    "expected_entities": ["Transformer"],
+    "expected_relation": "CITES",
+    "expected_sources": ["paper_arxiv_1706.03762"]
+  },
+  {
+    "id": "cite-009",
+    "category": "CITATION",
+    "question": "Which papers cite work on Self-Attention?",
+    "expected_entities": ["Self-Attention"],
+    "expected_relation": "CITES",
+    "expected_sources": []
+  },
+  {
+    "id": "evo-001",
+    "category": "EVOLUTION",
+    "question": "How did attention mechanisms evolve from RNNs to Transformers?",
+    "expected_entities": ["Transformer"],
+    "expected_relation": "IMPROVES_UPON",
+    "expected_sources": ["paper_arxiv_1706.03762"]
+  },
+  {
+    "id": "evo-002",
+    "category": "EVOLUTION",
+    "question": "What is the history of language model pretraining?",
+    "expected_entities": [],
+    "expected_relation": null,
+    "expected_sources": []
+  },
+  {
+    "id": "evo-003",
+    "category": "EVOLUTION",
+    "question": "How did image classification methods evolve from CNNs to modern architectures?",
+    "expected_entities": ["CNN"],
+    "expected_relation": "IMPROVES_UPON",
+    "expected_sources": []
+  },
+  {
+    "id": "evo-004",
+    "category": "EVOLUTION",
+    "question": "Describe the evolution of word representation methods over time.",
+    "expected_entities": [],
+    "expected_relation": null,
+    "expected_sources": []
+  },
+  {
+    "id": "evo-005",
+    "category": "EVOLUTION",
+    "question": "How did sequence-to-sequence models progress from LSTMs to Transformers?",
+    "expected_entities": ["LSTM", "Transformer"],
+    "expected_relation": "IMPROVES_UPON",
+    "expected_sources": ["paper_arxiv_1706.03762"]
+  },
+  {
+    "id": "evo-006",
+    "category": "EVOLUTION",
+    "question": "What is the development history of transfer learning in NLP?",
+    "expected_entities": [],
+    "expected_relation": null,
+    "expected_sources": []
+  },
+  {
+    "id": "evo-007",
+    "category": "EVOLUTION",
+    "question": "How did question answering methods evolve over time?",
+    "expected_entities": [],
+    "expected_relation": null,
+    "expected_sources": []
+  },
+  {
+    "id": "evo-008",
+    "category": "EVOLUTION",
+    "question": "Trace the evolution of neural machine translation methods.",
+    "expected_entities": [],
+    "expected_relation": null,
+    "expected_sources": []
+  },
+  {
+    "id": "evo-009",
+    "category": "EVOLUTION",
+    "question": "How did BERT evolve from earlier contextual embedding methods?",
+    "expected_entities": ["BERT"],
+    "expected_relation": "IMPROVES_UPON",
+    "expected_sources": ["paper_arxiv_1810.04805"]
+  },
+  {
+    "id": "sur-001",
+    "category": "SURVEY",
+    "question": "Give a survey of graph neural network methods.",
+    "expected_entities": [],
+    "expected_relation": null,
+    "expected_sources": []
+  },
+  {
+    "id": "sur-002",
+    "category": "SURVEY",
+    "question": "Provide an overview of retrieval-augmented generation approaches.",
+    "expected_entities": ["RAG", "GraphRAG"],
+    "expected_relation": null,
+    "expected_sources": []
+  },
+  {
+    "id": "sur-003",
+    "category": "SURVEY",
+    "question": "What is the state of the art in question answering?",
+    "expected_entities": [],
+    "expected_relation": null,
+    "expected_sources": []
+  },
+  {
+    "id": "sur-004",
+    "category": "SURVEY",
+    "question": "Summarize the main approaches to text classification.",
+    "expected_entities": [],
+    "expected_relation": null,
+    "expected_sources": []
+  },
+  {
+    "id": "sur-005",
+    "category": "SURVEY",
+    "question": "Give an overview of methods for named entity recognition.",
+    "expected_entities": [],
+    "expected_relation": null,
+    "expected_sources": []
+  },
+  {
+    "id": "sur-006",
+    "category": "SURVEY",
+    "question": "Survey the main techniques used for machine translation, including the Transformer.",
+    "expected_entities": ["Transformer"],
+    "expected_relation": null,
+    "expected_sources": ["paper_arxiv_1706.03762"]
+  },
+  {
+    "id": "sur-007",
+    "category": "SURVEY",
+    "question": "What methods exist for document summarization?",
+    "expected_entities": [],
+    "expected_relation": null,
+    "expected_sources": []
+  },
+  {
+    "id": "sur-008",
+    "category": "SURVEY",
+    "question": "Provide an overview of self-supervised learning techniques such as BERT.",
+    "expected_entities": ["BERT"],
+    "expected_relation": null,
+    "expected_sources": ["paper_arxiv_1810.04805"]
+  },
+  {
+    "id": "sur-009",
+    "category": "SURVEY",
+    "question": "Summarize recent approaches to image classification, including ResNet.",
+    "expected_entities": ["ResNet"],
+    "expected_relation": null,
+    "expected_sources": ["paper_arxiv_1512.03385"]
+  },
+  {
+    "id": "ent-001",
+    "category": "ENTITY_LOOKUP",
+    "question": "What is BERT?",
+    "expected_entities": ["BERT"],
+    "expected_relation": null,
+    "expected_sources": ["paper_arxiv_1810.04805"]
+  },
+  {
+    "id": "ent-002",
+    "category": "ENTITY_LOOKUP",
+    "question": "What is the Transformer?",
+    "expected_entities": ["Transformer"],
+    "expected_relation": null,
+    "expected_sources": ["paper_arxiv_1706.03762"]
+  },
+  {
+    "id": "ent-003",
+    "category": "ENTITY_LOOKUP",
+    "question": "Define Self-Attention.",
+    "expected_entities": ["Self-Attention"],
+    "expected_relation": null,
+    "expected_sources": []
+  },
+  {
+    "id": "ent-004",
+    "category": "ENTITY_LOOKUP",
+    "question": "What is ResNet?",
+    "expected_entities": ["ResNet"],
+    "expected_relation": null,
+    "expected_sources": ["paper_arxiv_1512.03385"]
+  },
+  {
+    "id": "ent-005",
+    "category": "ENTITY_LOOKUP",
+    "question": "What is the LSTM architecture?",
+    "expected_entities": ["LSTM"],
+    "expected_relation": null,
+    "expected_sources": []
+  },
+  {
+    "id": "ent-006",
+    "category": "ENTITY_LOOKUP",
+    "question": "What is WMT14?",
+    "expected_entities": ["WMT14"],
+    "expected_relation": null,
+    "expected_sources": []
+  },
+  {
+    "id": "ent-007",
+    "category": "ENTITY_LOOKUP",
+    "question": "Define the F1 metric.",
+    "expected_entities": ["F1"],
+    "expected_relation": null,
+    "expected_sources": []
+  },
+  {
+    "id": "ent-008",
+    "category": "ENTITY_LOOKUP",
+    "question": "What is ImageNet?",
+    "expected_entities": ["ImageNet"],
+    "expected_relation": null,
+    "expected_sources": []
+  },
+  {
+    "id": "ent-009",
+    "category": "ENTITY_LOOKUP",
+    "question": "Tell me about the GPT architecture.",
+    "expected_entities": ["GPT"],
+    "expected_relation": null,
+    "expected_sources": ["paper_arxiv_2005.14165"]
+  }
+]
