@@ -1,4 +1,4 @@
-fastapi==0.109.2
+fastapi==0.115.6
 uvicorn==0.27.1
 python-multipart==0.0.9
 celery[redis]==5.3.6
@@ -6,10 +6,12 @@ redis==5.0.1
 weaviate-client==4.22.0
 sentence-transformers==2.3.1
 python-doctr[torch]==0.8.1
-pydantic==2.6.1
-pydantic-settings==2.1.0
-httpx==0.26.0
-openai==1.12.0
+# weaviate-client 4.22 requires pydantic>=2.12; fastapi/openai/httpx are
+# pinned to versions that resolve against it (see docs/decisions.md).
+pydantic==2.12.3
+pydantic-settings==2.7.0
+httpx==0.28.1
+openai==1.59.6
 pymupdf==1.23.21
 structlog==24.1.0
 tenacity==8.2.3
