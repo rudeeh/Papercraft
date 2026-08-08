@@ -16,7 +16,8 @@ from typing import Any, Dict, List, Optional
 
 import structlog
 
-from app.graph.ontology import Node, Edge
+from app.graph.ontology import Node, Edge, OntologyValidator
+from app.graph.paper_graph_builder import build_entity_node, paper_entity_edge_type
 from app.storage.neo4j_client import Neo4jClient
 
 logger = structlog.get_logger()
@@ -100,6 +101,142 @@ class GraphRepository:
             edges=edges_stored,
         )
         return {"nodes_stored": nodes_stored, "edges_stored": edges_stored}
+
+    # ------------------------------------------------------------------
+    # Write operations  -- curated (human-attested) extractions
+    # ------------------------------------------------------------------
+
+    def store_curated_entity(
+        self, paper_id: str, entity: Dict[str, Any], *, curated_by: Optional[str] = None
+    ) -> Dict[str, int]:
+        """
+        Write a single human-attested entity into an existing paper's graph.
+
+        Node IDs come from ``build_entity_node``, the same function the
+        ingestion pipeline uses, so a promoted "Transformer" MERGEs onto the
+        node the pipeline would have created rather than a duplicate.
+
+        The Paper node is merged by ``node_id`` *only*. Passing its other
+        properties would SET them on match (see ``Neo4jClient.merge_node``),
+        which for a promotion that carries no title would blank the real
+        paper's title.
+        """
+        node = build_entity_node(paper_id, entity)
+        if node is None:
+            raise ValueError(
+                f"Entity is not valid under the ontology: {entity.get('name')!r} "
+                f"({entity.get('type')!r})"
+            )
+
+        paper_node_id = f"paper_{paper_id}"
+        self._client.merge_node("Paper", {"node_id": paper_node_id})
+
+        props: Dict[str, Any] = {
+            "node_id": node.node_id,
+            "name": node.name,
+            "paper_id": node.paper_id,
+            "curated": True,
+        }
+        props.update(node.properties)
+        if curated_by:
+            props["curated_by"] = curated_by
+        self._client.merge_node(node.node_type, props)
+
+        edge_props: Dict[str, Any] = {"curated": True, "confidence": entity.get("confidence", 1.0)}
+        if entity.get("evidence"):
+            edge_props["evidence"] = entity["evidence"]
+
+        edge_type = paper_entity_edge_type(entity)
+        if not OntologyValidator.validate_edge("Paper", edge_type, node.node_type):
+            # Same fallback the builder uses: a role edge the ontology
+            # rejects for this node type becomes a plain MENTIONS rather
+            # than dropping the entity's link to its paper entirely.
+            edge_type = "MENTIONS"
+
+        self._client.merge_edge(
+            source_label="Paper",
+            source_key_prop="node_id",
+            source_key_value=paper_node_id,
+            target_label=node.node_type,
+            target_key_prop="node_id",
+            target_key_value=node.node_id,
+            edge_type=edge_type,
+            edge_properties=edge_props,
+        )
+
+        logger.info(
+            "curated_entity_stored",
+            paper_id=paper_id,
+            node_id=node.node_id,
+            edge_type=edge_type,
+        )
+        return {"nodes_stored": 1, "edges_stored": 1}
+
+    def store_curated_relation(
+        self, paper_id: str, relation: Dict[str, Any], *, curated_by: Optional[str] = None
+    ) -> Dict[str, int]:
+        """
+        Write a single human-attested relation between two entities.
+
+        Both endpoints are merged first: a relation can be promoted before
+        (or instead of) the entities it connects, and ``merge_edge`` MATCHes
+        rather than creates, so an absent endpoint would make the write a
+        silent no-op.
+        """
+        source_type = relation.get("source_type") or ""
+        target_type = relation.get("target_type") or ""
+        edge_type = relation.get("relation") or ""
+
+        if not OntologyValidator.validate_edge(source_type, edge_type, target_type):
+            raise ValueError(
+                f"Relation is not valid under the ontology: "
+                f"{source_type} -{edge_type}-> {target_type}"
+            )
+
+        source_node = build_entity_node(paper_id, {
+            "name": relation.get("source"), "type": source_type,
+            "evidence": relation.get("evidence", ""),
+        })
+        target_node = build_entity_node(paper_id, {
+            "name": relation.get("target"), "type": target_type,
+            "evidence": relation.get("evidence", ""),
+        })
+        if source_node is None or target_node is None:
+            raise ValueError("Relation endpoints could not be resolved to ontology nodes")
+
+        for node in (source_node, target_node):
+            self._client.merge_node(node.node_type, {
+                "node_id": node.node_id,
+                "name": node.name,
+                "paper_id": node.paper_id,
+            })
+
+        edge_props: Dict[str, Any] = {
+            "curated": True,
+            "confidence": relation.get("confidence", 1.0),
+        }
+        if relation.get("evidence"):
+            edge_props["evidence"] = relation["evidence"]
+        if curated_by:
+            edge_props["curated_by"] = curated_by
+
+        self._client.merge_edge(
+            source_label=source_node.node_type,
+            source_key_prop="node_id",
+            source_key_value=source_node.node_id,
+            target_label=target_node.node_type,
+            target_key_prop="node_id",
+            target_key_value=target_node.node_id,
+            edge_type=edge_type,
+            edge_properties=edge_props,
+        )
+
+        logger.info(
+            "curated_relation_stored",
+            paper_id=paper_id,
+            edge=f"{source_node.node_id} -{edge_type}-> {target_node.node_id}",
+        )
+        return {"nodes_stored": 2, "edges_stored": 1}
 
     # ------------------------------------------------------------------
     # Read operations  -- citation graph

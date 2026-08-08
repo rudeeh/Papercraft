@@ -28,6 +28,57 @@ def _stable_hash(text: str) -> str:
     return hashlib.md5(text.encode("utf-8")).hexdigest()[:12]
 
 
+# EntityExtractor role -> the Paper->entity ontology edge it implies.
+ENTITY_ROLE_EDGE_TYPES = {
+    "introduces": "INTRODUCES",
+    "uses_method": "USES_METHOD",
+    "uses_dataset": "USES_DATASET",
+    "solves_task": "SOLVES_TASK",
+}
+
+# Entity types that name the same real-world thing across papers ("the"
+# Transformer, "the" ImageNet), so their node IDs omit the paper ID and the
+# node is shared. Claim and Experiment are inherently per-paper.
+GLOBALLY_SHARED_ENTITY_TYPES = {"Method", "Dataset", "Task", "Metric"}
+
+
+def build_entity_node(paper_id: str, ent: Dict[str, str]) -> Optional[Node]:
+    """
+    Build the entity Node for *ent*, or None if the ontology rejects it.
+
+    Module-level rather than a method because the curation engine needs the
+    exact same node-ID scheme when it promotes a reviewed draft: a promoted
+    "Transformer" has to MERGE onto the node the pipeline would have made,
+    not a second one beside it.
+    """
+    name = (ent.get("name") or "").strip()
+    etype = ent.get("type") or ""
+
+    if not name or not OntologyValidator.validate_node_type(etype):
+        return None
+
+    if etype in GLOBALLY_SHARED_ENTITY_TYPES:
+        nid = f"{etype.lower()}_{_stable_hash(name.lower())}"
+    else:
+        nid = f"{etype.lower()}_{paper_id}_{_stable_hash(name.lower())}"
+
+    return Node(
+        node_id=nid,
+        node_type=etype,
+        name=name,
+        paper_id=paper_id,
+        properties={
+            "source_section": ent.get("source_section", ""),
+            "evidence": ent.get("evidence", ""),
+        },
+    )
+
+
+def paper_entity_edge_type(ent: Dict[str, str]) -> str:
+    """The Paper->entity edge implied by an entity's extracted role."""
+    return ENTITY_ROLE_EDGE_TYPES.get(ent.get("role"), "MENTIONS")
+
+
 class PaperGraphBuilder:
     """
     Builds a knowledge graph from parsed paper data.
@@ -43,12 +94,7 @@ class PaperGraphBuilder:
     """
 
     # EntityExtractor role -> the Paper->entity ontology edge it implies.
-    _ROLE_EDGE_TYPES = {
-        "introduces": "INTRODUCES",
-        "uses_method": "USES_METHOD",
-        "uses_dataset": "USES_DATASET",
-        "solves_task": "SOLVES_TASK",
-    }
+    _ROLE_EDGE_TYPES = ENTITY_ROLE_EDGE_TYPES
 
     def __init__(self) -> None:
         self._validator = OntologyValidator()
@@ -257,33 +303,7 @@ class PaperGraphBuilder:
         )
 
     def _make_entity_node(self, paper_id: str, ent: Dict[str, str]) -> Optional[Node]:
-        name = (ent.get("name") or "").strip()
-        etype = ent.get("type") or ""
-
-        if not name or not self._validator.validate_node_type(etype):
-            return None
-
-        # Globally shared entities (same Transformer across papers)
-        globally_shared = {"Method", "Dataset", "Task", "Metric"}
-
-        if etype in globally_shared:
-            nid = f"{etype.lower()}_{_stable_hash(name.lower())}"
-        else:
-            # Claim, Experiment are per-paper
-            nid = f"{etype.lower()}_{paper_id}_{_stable_hash(name.lower())}"
-
-        props = {
-            "source_section": ent.get("source_section", ""),
-            "evidence": ent.get("evidence", ""),
-        }
-
-        return Node(
-            node_id=nid,
-            node_type=etype,
-            name=name,
-            paper_id=paper_id,
-            properties=props,
-        )
+        return build_entity_node(paper_id, ent)
 
     # ------------------------------------------------------------------
     # Edge factories
