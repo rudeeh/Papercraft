@@ -2,6 +2,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.api.routes import router
 from app.api.graph_routes import router as graph_router
+from app.api.auth_routes import router as auth_router
+from app.api.curation_routes import router as curation_router
 from app.core.config import settings
 import structlog
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -32,6 +34,14 @@ async def lifespan(app: FastAPI):
     # Setup directories for file uploads
     import os
     os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
+
+    # Create any missing PostgreSQL tables. Deliberately non-fatal: like
+    # Neo4j and Weaviate, the relational store is optional -- without it
+    # the auth and curation routes 503 while upload / chat / graph-query
+    # keep working.
+    from app.db.base import init_db
+    if not init_db():
+        logger.warning("PostgreSQL unavailable -- auth and curation routes will 503")
 
     # Pre-warm the embedding model. It's lazily loaded on first use by
     # design (keeps a plain worker/api boot fast when nothing needs it
@@ -74,6 +84,8 @@ app.add_middleware(
 
 app.include_router(router, prefix="/api/v1")
 app.include_router(graph_router, prefix="/api/v1")
+app.include_router(auth_router, prefix="/api/v1")
+app.include_router(curation_router, prefix="/api/v1")
 
 @app.get("/")
 async def root():
