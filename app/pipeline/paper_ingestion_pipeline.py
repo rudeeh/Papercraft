@@ -9,9 +9,13 @@ Pipeline stages
 PDF
   -> OCR  (critical)
   -> Paper Parsing  (critical)
+  -> OpenAlex Enrichment  (non-critical)
   -> Citation Extraction  (non-critical)
   -> Entity Extraction  (non-critical)
   -> Relation Extraction  (non-critical)
+  -> LLM Extraction  (non-critical, off by default)
+  -> Confidence Routing  (non-critical)
+  -> Queue Review Drafts  (non-critical)
   -> Build Paper Graph  (non-critical)
   -> Store Graph in Neo4j  (non-critical)
   -> Build Vector Chunks  (non-critical)
@@ -47,6 +51,7 @@ import structlog
 from app.paper.parser import PaperParser
 from app.citations.extractor import CitationExtractor
 from app.citations.normalizer import CitationNormalizer
+from app.graph.confidence_router import ConfidenceRouter
 from app.graph.entity_extractor import EntityExtractor
 from app.graph.relation_extractor import RelationExtractor
 from app.graph.paper_graph_builder import PaperGraphBuilder
@@ -54,8 +59,11 @@ from app.storage.neo4j_client import Neo4jClient
 from app.storage.graph_repository import GraphRepository
 from app.storage.vector_repository import VectorRepository
 from app.core.config import settings
+from app.db.models import RoutingDecision
 
 logger = structlog.get_logger()
+
+_DISCARDED = RoutingDecision.DISCARDED
 
 
 # ======================================================================
@@ -106,6 +114,9 @@ class PipelineResult:
     citation_count: int = 0
     entity_count: int = 0
     relation_count: int = 0
+    auto_inserted_count: int = 0
+    queued_for_review_count: int = 0
+    enriched: bool = False
 
     # ---- derived status --------------------------------------------------
     _CRITICAL_STEPS = frozenset({"OCR", "PARSING"})
@@ -147,10 +158,29 @@ class PaperIngestionPipeline:
         self,
         neo4j_client: Optional[Neo4jClient] = None,
         vector_repo: Optional[VectorRepository] = None,
+        openalex_client: Optional[Any] = None,
+        llm_extractor: Optional[Any] = None,
+        draft_sink: Optional[Any] = None,
+        router: Optional[ConfidenceRouter] = None,
     ) -> None:
+        """
+        ``openalex_client``, ``llm_extractor`` and ``draft_sink`` are all
+        optional collaborators, injected rather than constructed here so a
+        test (or a deployment without PostgreSQL / an LLM key) gets the
+        pre-existing behaviour with no network calls.
+
+        ``draft_sink`` is called as ``sink(paper_id, routed_items)`` and is
+        what makes confidence routing *load-bearing*: with nowhere to queue
+        a low-confidence extraction, withholding it from the graph would
+        just delete it, so without a sink everything is inserted as before.
+        """
         self._neo4j_client = neo4j_client
         self._graph_repo: Optional[GraphRepository] = None
         self._vector_repo = vector_repo
+        self._openalex = openalex_client
+        self._llm_extractor = llm_extractor
+        self._draft_sink = draft_sink
+        self._router = router or ConfidenceRouter()
 
         # Existing extractors (already in the codebase)
         self._parser = PaperParser()
@@ -237,6 +267,12 @@ class PaperIngestionPipeline:
             return result
         parsed = parse_step.data
 
+        # ---- 2b. OpenAlex Enrichment (non-critical) ---------------------
+        # Runs before graph building so the Paper node carries canonical
+        # metadata (authors, year, venue, DOI) rather than whatever the
+        # first page happened to yield.
+        metadata = self._run_enrichment(parsed, result)
+
         # ---- 3. Citation Extraction (non-critical) ----------------------
         full_text = "\n\n".join(text for _, text in pages_text)
 
@@ -267,18 +303,25 @@ class PaperIngestionPipeline:
         relations = rel_step.data if rel_step.status == StepStatus.SUCCESS else []
         result.relation_count = len(relations)
 
+        # ---- 5b/6a. LLM extraction + confidence routing -----------------
+        entities, relations = self._run_extraction_routing(
+            paper_id, full_text, entities, relations, result
+        )
+
         # ---- 6. Build Paper Graph (non-critical) ------------------------
         def _do_build_graph():
             return self._graph_builder.build(
                 paper_id=paper_id,
-                title=parsed.title,
-                abstract=parsed.abstract,
+                title=metadata.get("title") or parsed.title,
+                abstract=metadata.get("abstract") or parsed.abstract,
+                authors=metadata.get("author_names"),
+                year=metadata.get("year"),
                 sections=parsed.sections,
                 entities=entities,
                 relations=relations,
                 citations=citations,
                 arxiv_id=parsed.arxiv_id,
-                doi=parsed.doi,
+                doi=metadata.get("doi") or parsed.doi,
             )
 
         graph_step = self._run_step("GRAPH_BUILD", _do_build_graph)
@@ -376,8 +419,138 @@ class PaperIngestionPipeline:
             graph_nodes=result.graph_nodes_count,
             graph_edges=result.graph_edges_count,
             vectors=result.vector_count,
+            auto_inserted=result.auto_inserted_count,
+            queued_for_review=result.queued_for_review_count,
+            enriched=result.enriched,
         )
         return result
+
+    # ------------------------------------------------------------------
+    # Enrichment
+    # ------------------------------------------------------------------
+
+    def _run_enrichment(self, parsed, result: PipelineResult) -> Dict[str, Any]:
+        """
+        Look the paper up in OpenAlex and return the fields worth merging.
+
+        Returns ``{}`` on every failure path, and the caller keeps its
+        parser-derived values -- enrichment is strictly additive.
+        """
+        if self._openalex is None or not settings.OPENALEX_ENABLED:
+            result.steps.append(StepResult(
+                step_name="ENRICHMENT", status=StepStatus.SKIPPED,
+                error="OpenAlex enrichment not configured",
+            ))
+            return {}
+
+        def _do_enrich():
+            return self._openalex.enrich(
+                doi=getattr(parsed, "doi", None),
+                arxiv_id=getattr(parsed, "arxiv_id", None),
+                title=getattr(parsed, "title", None),
+            )
+
+        step = self._run_step("ENRICHMENT", _do_enrich)
+        result.steps.append(step)
+
+        enriched = step.data if step.status == StepStatus.SUCCESS else None
+        if not enriched:
+            return {}
+
+        result.enriched = True
+        # Flattened to the names PaperGraphBuilder.build() takes.
+        return {
+            "title": enriched.get("title"),
+            "abstract": enriched.get("abstract"),
+            "doi": enriched.get("doi"),
+            "year": enriched.get("year"),
+            "author_names": [a["name"] for a in enriched.get("authors", []) if a.get("name")],
+            "venue": enriched.get("venue"),
+            "openalex_id": enriched.get("openalex_id"),
+        }
+
+    # ------------------------------------------------------------------
+    # LLM extraction + confidence routing
+    # ------------------------------------------------------------------
+
+    def _run_extraction_routing(
+        self,
+        paper_id: str,
+        full_text: str,
+        entities: List[Dict[str, Any]],
+        relations: List[Dict[str, Any]],
+        result: PipelineResult,
+    ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+        """
+        Merge the heuristic and (optional) LLM passes, score them, and split
+        into "goes straight into the graph" and "queued for a human".
+
+        Returns the entities and relations the graph build should use.
+        """
+        llm_entities: List[Dict[str, Any]] = []
+        llm_relations: List[Dict[str, Any]] = []
+
+        if self._llm_extractor is not None and settings.EXTRACTION_PROVIDER in ("llm", "hybrid"):
+            llm_step = self._run_step("LLM_EXTRACTION", self._llm_extractor.extract, full_text)
+            result.steps.append(llm_step)
+            if llm_step.status == StepStatus.SUCCESS and llm_step.data:
+                llm_entities = llm_step.data.get("entities", [])
+                llm_relations = llm_step.data.get("relations", [])
+            # "llm" mode replaces the heuristic pass; "hybrid" adds to it.
+            if settings.EXTRACTION_PROVIDER == "llm":
+                entities, relations = [], []
+        else:
+            result.steps.append(StepResult(
+                step_name="LLM_EXTRACTION", status=StepStatus.SKIPPED,
+                error=f"EXTRACTION_PROVIDER={settings.EXTRACTION_PROVIDER}",
+            ))
+
+        route_step = self._run_step(
+            "CONFIDENCE_ROUTING",
+            self._router.merge_and_route,
+            entities, llm_entities, relations, llm_relations,
+        )
+        result.steps.append(route_step)
+        if route_step.status != StepStatus.SUCCESS:
+            return entities, relations  # Routing failed; fall back to everything.
+
+        routed_entities, routed_relations = route_step.data
+        routed_all = routed_entities + routed_relations
+        result.auto_inserted_count = sum(1 for r in routed_all if r.is_auto_insert)
+
+        if self._draft_sink is None:
+            # Nothing to queue *to*. Withholding the review-needed items
+            # here would silently discard them, which is strictly worse
+            # than the pre-routing behaviour of inserting everything.
+            result.steps.append(StepResult(
+                step_name="DRAFT_QUEUE", status=StepStatus.SKIPPED,
+                error="No draft sink configured -- all extractions inserted directly",
+            ))
+            return (
+                [r.payload for r in routed_entities if r.routing is not _DISCARDED],
+                [r.payload for r in routed_relations if r.routing is not _DISCARDED],
+            )
+
+        for_review = [r for r in routed_all if r.needs_review]
+        queue_step = self._run_step("DRAFT_QUEUE", self._draft_sink, paper_id, for_review)
+        result.steps.append(queue_step)
+        result.queued_for_review_count = (
+            len(for_review) if queue_step.status == StepStatus.SUCCESS else 0
+        )
+
+        if queue_step.status != StepStatus.SUCCESS:
+            # The queue write failed, so the same argument as the no-sink
+            # case applies: insert everything rather than lose it.
+            logger.warning("draft_queue_failed_inserting_all", paper_id=paper_id)
+            return (
+                [r.payload for r in routed_entities if r.routing is not _DISCARDED],
+                [r.payload for r in routed_relations if r.routing is not _DISCARDED],
+            )
+
+        return (
+            [r.payload for r in routed_entities if r.is_auto_insert],
+            [r.payload for r in routed_relations if r.is_auto_insert],
+        )
 
     # ------------------------------------------------------------------
     # Vector chunk construction
