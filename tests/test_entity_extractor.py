@@ -1,3 +1,5 @@
+import pytest
+
 from app.graph.entity_extractor import EntityExtractor
 from app.graph.ontology import OntologyValidator
 
@@ -84,3 +86,64 @@ def test_accepts_parser_result_shape():
     assert ("Task", "document retrieval") in entity_pairs
     assert ("Dataset", "SQuAD") in entity_pairs
     assert ("Metric", "F1") in entity_pairs
+
+
+class TestRejectsNonEntities:
+    """
+    Regression cover for the extractor emitting function words and
+    sentence fragments as Methods/Datasets/Metrics/Tasks (issue #11).
+
+    The capture patterns anchor on capitalisation to spot proper nouns,
+    but were being run case-insensitively, so "the model" yielded "the".
+    """
+
+    NAME_LIKE = {"Method", "Dataset", "Task", "Metric"}
+
+    def _named(self, text):
+        return {
+            (e["type"], e["name"])
+            for e in EntityExtractor().extract(text)
+            if e["type"] in self.NAME_LIKE
+        }
+
+    @pytest.mark.parametrize(
+        "sentence",
+        [
+            "The model was trained on a large corpus.",
+            "All experiments use the same framework.",
+            "This enables the model to reach convergence.",
+            "Our approach denotes each stream of the video separately.",
+            "We evaluate on the dataset described above.",
+            "The majority of parameters are shared across the network.",
+            "Video generation has evolved rapidly in recent years.",
+        ],
+    )
+    def test_function_words_and_fragments_are_not_entities(self, sentence):
+        assert self._named(sentence) == set()
+
+    @pytest.mark.parametrize(
+        "sentence,expected",
+        [
+            ("The Transformer model outperforms LSTM.", ("Method", "Transformer")),
+            ("We use a Multi-Head Attention architecture.", ("Method", "Multi-Head Attention")),
+            ("Trained on the CIFAR-100 dataset.", ("Dataset", "CIFAR-100")),
+            ("We evaluate BERT on the SQuAD dataset.", ("Dataset", "SQuAD")),
+            ("Results are measured by BLEU score.", ("Metric", "BLEU")),
+        ],
+    )
+    def test_real_entities_still_extracted(self, sentence, expected):
+        assert expected in self._named(sentence)
+
+    def test_does_not_join_two_entities_across_a_preposition(self):
+        # The greedy dataset pattern used to capture "BERT on the SQuAD".
+        assert ("Dataset", "BERT on the SQuAD") not in self._named(
+            "We evaluate BERT on the SQuAD dataset."
+        )
+
+    def test_claims_may_still_be_statements(self):
+        # Claim/Experiment names are statements by nature, so the
+        # fragment rule must not apply to them.
+        entities = EntityExtractor().extract(
+            "We show that our method improves accuracy substantially."
+        )
+        assert any(e["type"] == "Claim" for e in entities)

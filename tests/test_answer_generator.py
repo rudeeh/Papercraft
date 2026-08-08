@@ -70,6 +70,20 @@ class TestGenerateWithContext:
         result = generator.generate("q", GROUNDED_RETRIEVAL)
         assert result["confidence_notes"] == []
 
+    def test_api_key_passed_through_to_llm_client(self):
+        generator, llm_client = _make_generator()
+        generator.generate("q", GROUNDED_RETRIEVAL, api_key="sk-or-user-supplied")
+        assert llm_client.generate_response.call_args.kwargs["api_key"] == "sk-or-user-supplied"
+
+    def test_propagates_llm_not_configured_error(self):
+        from app.services.llm import LLMNotConfiguredError
+
+        generator, llm_client = _make_generator()
+        llm_client.generate_response.side_effect = LLMNotConfiguredError("no key")
+
+        with pytest.raises(LLMNotConfiguredError):
+            generator.generate("q", GROUNDED_RETRIEVAL)
+
 
 class TestGenerateWithoutContext:
     def test_refuses_to_answer_without_calling_llm(self):

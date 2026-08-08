@@ -10,13 +10,14 @@ import { TaskStatus } from '../../models/api.models';
   imports: [CommonModule, FormsModule],
   template: `
     <div class="card">
-      <h2>2. Check Task Status</h2>
+      <h2>Check a task by ID</h2>
+      <p class="hint">Uploads made here already show their status below in "Recent Uploads" -- use this only if you have a task ID from somewhere else (e.g. a script).</p>
 
       <div class="form-group">
         <input
           type="text"
           [(ngModel)]="taskId"
-          placeholder="Enter task ID from upload"
+          placeholder="Enter task ID"
           class="input"
         />
       </div>
@@ -50,17 +51,23 @@ import { TaskStatus } from '../../models/api.models';
   `,
   styles: [`
     .card {
-      background: #fff;
-      border: 1px solid #e0e0e0;
+      background: var(--color-white);
+      border: 1px solid var(--color-border);
       border-radius: 8px;
       padding: 1.5rem;
     }
 
     h2 {
-      margin: 0 0 1.25rem;
+      margin: 0 0 0.5rem;
       font-size: 1.125rem;
       font-weight: 600;
-      color: #1a1a1a;
+      color: var(--color-black);
+    }
+
+    .hint {
+      margin: 0 0 1.25rem;
+      color: var(--color-medium-gray);
+      font-size: 0.8125rem;
     }
 
     .form-group {
@@ -70,16 +77,18 @@ import { TaskStatus } from '../../models/api.models';
     .input {
       width: 100%;
       padding: 0.625rem 0.875rem;
-      border: 1px solid #ccc;
+      border: 1px solid var(--color-input-border);
       border-radius: 4px;
       font-size: 0.9375rem;
+      background: var(--color-white);
+      color: var(--color-black);
       transition: border-color 0.2s;
       box-sizing: border-box;
     }
 
     .input:focus {
       outline: none;
-      border-color: #333;
+      border-color: var(--color-dark-gray);
     }
 
     .btn {
@@ -98,13 +107,13 @@ import { TaskStatus } from '../../models/api.models';
     }
 
     .btn-secondary {
-      background: #f5f5f5;
-      color: #1a1a1a;
-      border: 1px solid #ddd;
+      background: var(--color-surface-hover);
+      color: var(--color-black);
+      border: 1px solid var(--color-input-border);
     }
 
     .btn-secondary:hover:not(:disabled) {
-      background: #e8e8e8;
+      background: var(--color-surface-hover-strong);
     }
 
     .result {
@@ -117,31 +126,33 @@ import { TaskStatus } from '../../models/api.models';
     .result pre {
       margin: 0.75rem 0 0;
       padding: 0.75rem;
-      background: rgba(0, 0, 0, 0.05);
+      background: rgba(128, 128, 128, 0.1);
       border-radius: 4px;
       overflow-x: auto;
       font-size: 0.8125rem;
     }
 
     .result.success {
-      background: #d4edda;
-      border: 1px solid #c3e6cb;
+      background: var(--color-success-bg);
+      border: 1px solid var(--color-success-border);
+      color: var(--color-success-text);
     }
 
     .result.error {
-      background: #f8d7da;
-      border: 1px solid #f5c6cb;
-      color: #721c24;
+      background: var(--color-error-bg);
+      border: 1px solid var(--color-error-border);
+      color: var(--color-error-text);
     }
 
     .result.info {
-      background: #e7f3ff;
-      border: 1px solid #b8daff;
+      background: var(--color-info-bg);
+      border: 1px solid var(--color-info-border);
+      color: var(--color-info-text);
     }
 
     .result.pending {
-      background: #fff3cd;
-      border: 1px solid #ffc107;
+      background: var(--color-warning-bg);
+      border: 1px solid var(--color-warning-border);
     }
 
     .status-header {
@@ -152,7 +163,7 @@ import { TaskStatus } from '../../models/api.models';
 
     .status-label {
       font-weight: 500;
-      color: #444;
+      color: var(--color-dark-gray);
     }
 
     .status-badge {
@@ -164,18 +175,18 @@ import { TaskStatus } from '../../models/api.models';
     }
 
     .status-badge.success {
-      background: #28a745;
+      background: var(--color-success);
       color: #fff;
     }
 
     .status-badge.failure {
-      background: #dc3545;
+      background: var(--color-error);
       color: #fff;
     }
 
     .status-badge.pending,
     .status-badge.started {
-      background: #ffc107;
+      background: var(--color-warning);
       color: #1a1a1a;
     }
   `]

@@ -47,9 +47,9 @@ async def _post_graph_query(payload):
         return await ac.post("/api/v1/graph-query", json=payload)
 
 
-async def _get_paper_graph(paper_id):
+async def _get_citation_graph():
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
-        return await ac.get(f"/api/v1/papers/{paper_id}/graph")
+        return await ac.get("/api/v1/citation-graph")
 
 
 class TestGraphQueryEndpoint:
@@ -105,6 +105,36 @@ class TestGraphQueryEndpoint:
         assert response.status_code == 503
 
     @pytest.mark.asyncio
+    async def test_passes_request_api_key_to_answer_generator(self):
+        mock_hybrid = MagicMock()
+        mock_hybrid.retrieve.return_value = RETRIEVAL_RESULT
+        mock_generator = MagicMock()
+        mock_generator.generate.return_value = GENERATED_ANSWER
+        app.dependency_overrides[get_hybrid_retriever] = lambda: mock_hybrid
+        app.dependency_overrides[get_answer_generator] = lambda: mock_generator
+
+        await _post_graph_query({"query": "What is BERT?", "api_key": "sk-or-user-supplied"})
+
+        mock_generator.generate.assert_called_once_with(
+            "What is BERT?", RETRIEVAL_RESULT, api_key="sk-or-user-supplied"
+        )
+
+    @pytest.mark.asyncio
+    async def test_no_api_key_available_returns_401(self):
+        from app.services.llm import LLMNotConfiguredError
+
+        mock_hybrid = MagicMock()
+        mock_hybrid.retrieve.return_value = RETRIEVAL_RESULT
+        mock_generator = MagicMock()
+        mock_generator.generate.side_effect = LLMNotConfiguredError("no key")
+        app.dependency_overrides[get_hybrid_retriever] = lambda: mock_hybrid
+        app.dependency_overrides[get_answer_generator] = lambda: mock_generator
+
+        response = await _post_graph_query({"query": "What is BERT?"})
+
+        assert response.status_code == 401
+
+    @pytest.mark.asyncio
     async def test_default_top_k_used_when_omitted(self):
         mock_hybrid = MagicMock()
         mock_hybrid.retrieve.return_value = RETRIEVAL_RESULT
@@ -118,40 +148,32 @@ class TestGraphQueryEndpoint:
         mock_hybrid.retrieve.assert_called_once_with("What is BERT?", top_k=10)
 
 
-class TestPaperGraphEndpoint:
+class TestCitationGraphEndpoint:
     @pytest.mark.asyncio
-    async def test_returns_nodes_and_edges_for_existing_paper(self):
+    async def test_returns_papers_and_edges(self):
         mock_repo = MagicMock()
-        mock_repo.get_paper_graph.return_value = {
-            "nodes": [{"id": "p1", "type": "Paper", "title": "My Paper"}],
-            "edges": [],
+        mock_repo.get_citation_graph.return_value = {
+            "papers": [
+                {"paper_id": "p1", "title": "Paper One", "name": "Paper One", "year": 2021, "is_stub": False},
+                {"paper_id": "p2", "title": "Paper Two", "name": "Paper Two", "year": 2022, "is_stub": False},
+            ],
+            "edges": [{"source": "p2", "target": "p1"}],
         }
         app.dependency_overrides[get_graph_repository] = lambda: mock_repo
 
-        response = await _get_paper_graph("p1")
+        response = await _get_citation_graph()
 
         assert response.status_code == 200
         body = response.json()
-        assert body["paper_id"] == "p1"
-        assert body["nodes"][0]["id"] == "p1"
-        assert body["edges"] == []
-
-    @pytest.mark.asyncio
-    async def test_missing_paper_returns_404(self):
-        mock_repo = MagicMock()
-        mock_repo.get_paper_graph.return_value = {}
-        app.dependency_overrides[get_graph_repository] = lambda: mock_repo
-
-        response = await _get_paper_graph("does-not-exist")
-
-        assert response.status_code == 404
+        assert len(body["papers"]) == 2
+        assert body["edges"] == [{"source": "p2", "target": "p1"}]
 
     @pytest.mark.asyncio
     async def test_graph_store_failure_returns_503(self):
         mock_repo = MagicMock()
-        mock_repo.get_paper_graph.side_effect = ConnectionError("neo4j down")
+        mock_repo.get_citation_graph.side_effect = ConnectionError("neo4j down")
         app.dependency_overrides[get_graph_repository] = lambda: mock_repo
 
-        response = await _get_paper_graph("p1")
+        response = await _get_citation_graph()
 
         assert response.status_code == 503

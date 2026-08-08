@@ -41,7 +41,7 @@ import { ApiService } from '../../services/api.service';
                   </button>
                   @if (task.doc_id) {
                     <button class="btn btn-sm btn-success" (click)="onUseInChat(task.doc_id)">
-                      Use in Chat
+                      Search this doc
                     </button>
                   }
                 </div>
@@ -54,8 +54,8 @@ import { ApiService } from '../../services/api.service';
   `,
   styles: [`
     .card {
-      background: #fff;
-      border: 1px solid #e0e0e0;
+      background: var(--color-white);
+      border: 1px solid var(--color-border);
       border-radius: 8px;
       padding: 1.5rem;
     }
@@ -71,24 +71,24 @@ import { ApiService } from '../../services/api.service';
       margin: 0;
       font-size: 1.125rem;
       font-weight: 600;
-      color: #1a1a1a;
+      color: var(--color-black);
     }
 
     .btn-clear {
       background: none;
       border: none;
-      color: #666;
+      color: var(--color-medium-gray);
       font-size: 0.875rem;
       cursor: pointer;
       text-decoration: underline;
     }
 
     .btn-clear:hover {
-      color: #dc3545;
+      color: var(--color-error);
     }
 
     .empty-state {
-      color: #666;
+      color: var(--color-medium-gray);
       font-style: italic;
       margin: 0;
       padding: 1rem 0;
@@ -101,10 +101,10 @@ import { ApiService } from '../../services/api.service';
     }
 
     .task-item {
-      border: 1px solid #e0e0e0;
+      border: 1px solid var(--color-border);
       border-radius: 6px;
       padding: 1rem;
-      background: #fafafa;
+      background: var(--color-surface-alt);
     }
 
     .task-main {
@@ -122,12 +122,12 @@ import { ApiService } from '../../services/api.service';
 
     .filename {
       font-weight: 600;
-      color: #1a1a1a;
+      color: var(--color-black);
     }
 
     .task-id, .doc-id {
       font-size: 0.8125rem;
-      color: #666;
+      color: var(--color-medium-gray);
       font-family: monospace;
     }
 
@@ -141,19 +141,19 @@ import { ApiService } from '../../services/api.service';
     }
 
     .status-badge.success {
-      background: #d4edda;
-      color: #155724;
+      background: var(--color-success-bg);
+      color: var(--color-success-text);
     }
 
     .status-badge.failure {
-      background: #f8d7da;
-      color: #721c24;
+      background: var(--color-error-bg);
+      color: var(--color-error-text);
     }
 
     .status-badge.pending,
     .status-badge.started {
-      background: #fff3cd;
-      color: #856404;
+      background: var(--color-warning-bg);
+      color: var(--color-warning-text);
     }
 
     .task-footer {
@@ -162,12 +162,12 @@ import { ApiService } from '../../services/api.service';
       align-items: center;
       margin-top: 0.75rem;
       padding-top: 0.75rem;
-      border-top: 1px solid #e8e8e8;
+      border-top: 1px solid var(--color-border);
     }
 
     .timestamp {
       font-size: 0.8125rem;
-      color: #888;
+      color: var(--color-light-gray);
     }
 
     .task-actions {
@@ -190,22 +190,23 @@ import { ApiService } from '../../services/api.service';
     }
 
     .btn-secondary {
-      background: #f0f0f0;
-      color: #1a1a1a;
-      border: 1px solid #ddd;
+      background: var(--color-surface-hover);
+      color: var(--color-black);
+      border: 1px solid var(--color-input-border);
     }
 
     .btn-secondary:hover {
-      background: #e0e0e0;
+      background: var(--color-surface-hover-strong);
     }
 
     .btn-success {
-      background: #28a745;
+      background: var(--color-success);
       color: #fff;
     }
 
     .btn-success:hover {
-      background: #218838;
+      background: var(--color-success);
+      filter: brightness(0.9);
     }
 
     @media (max-width: 480px) {

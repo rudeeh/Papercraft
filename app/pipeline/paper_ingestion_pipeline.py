@@ -16,7 +16,7 @@ PDF
   -> Store Graph in Neo4j  (non-critical)
   -> Build Vector Chunks  (non-critical)
   -> Generate Embeddings  (non-critical)
-  -> Store Vectors in Qdrant  (non-critical)
+  -> Store Vectors in Weaviate  (non-critical)
 
 Vector chunks are built from the same paper-graph inputs as the Neo4j
 step (abstract, sections, entities) rather than raw OCR text, so every
@@ -32,15 +32,15 @@ Risk Mitigations Addressed
   outcome (SUCCESS / ERROR / SKIPPED), duration, and error message.
 - Neo4j unavailability is graceful: If Neo4j cannot be reached the
   pipeline still completes the vector path and marks graph steps as SKIPPED.
-- Qdrant unavailability is graceful: mirrors the Neo4j behaviour -- if no
-  ``VectorRepository`` is supplied, EMBEDDING/QDRANT_STORE are SKIPPED
+- Weaviate unavailability is graceful: mirrors the Neo4j behaviour -- if no
+  ``VectorRepository`` is supplied, EMBEDDING/VECTOR_STORE are SKIPPED
   rather than raising.
 """
 
 import time
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import structlog
 
@@ -68,6 +68,19 @@ class StepStatus(str, Enum):
     ERROR = "error"
 
 
+def _elapsed_ms(start: float) -> float:
+    """
+    Milliseconds since *start* (a ``time.perf_counter()`` reading).
+
+    Deliberately returns a float rounded to microseconds rather than an
+    int: several steps legitimately finish in well under a millisecond,
+    and truncating those to ``int`` reported them as a flat ``0ms``,
+    which read as "the timer is broken" and made the per-step numbers
+    useless for spotting which stage actually costs time.
+    """
+    return round((time.perf_counter() - start) * 1000, 3)
+
+
 @dataclass
 class StepResult:
     """Outcome of a single pipeline step."""
@@ -75,7 +88,7 @@ class StepResult:
     status: StepStatus
     data: Any = None
     error: str = ""
-    duration_ms: int = 0
+    duration_ms: float = 0.0
 
 
 @dataclass
@@ -84,7 +97,7 @@ class PipelineResult:
 
     paper_id: str
     steps: List[StepResult] = field(default_factory=list)
-    total_duration_ms: int = 0
+    total_duration_ms: float = 0.0
 
     # Aggregate counts for the return value
     graph_nodes_count: int = 0
@@ -127,7 +140,7 @@ class PipelineResult:
 
 class PaperIngestionPipeline:
     """
-    End-to-end pipeline: PDF  ->  knowledge graph in Neo4j  +  vectors in Qdrant.
+    End-to-end pipeline: PDF  ->  knowledge graph in Neo4j  +  vectors in Weaviate.
     """
 
     def __init__(
@@ -163,17 +176,20 @@ class PaperIngestionPipeline:
         **kwargs,
     ) -> StepResult:
         """Execute *fn* with timing and error handling."""
-        t0 = time.time()
+        # perf_counter, not time(): monotonic and high-resolution, where
+        # time() can sit at ~15ms granularity on Windows -- enough on its
+        # own to report a fast step as 0ms.
+        t0 = time.perf_counter()
         try:
             data = fn(*args, **kwargs)
             return StepResult(
                 step_name=step_name,
                 status=StepStatus.SUCCESS,
                 data=data,
-                duration_ms=int((time.time() - t0) * 1000),
+                duration_ms=_elapsed_ms(t0),
             )
         except Exception as exc:
-            ms = int((time.time() - t0) * 1000)
+            ms = _elapsed_ms(t0)
             logger.error(
                 "pipeline_step_failed",
                 step=step_name,
@@ -200,7 +216,7 @@ class PaperIngestionPipeline:
         Critical steps (OCR, PARSING) raise on failure.
         All other steps catch their own exceptions and continue.
         """
-        t_start = time.time()
+        t_start = time.perf_counter()
         result = PipelineResult(paper_id=paper_id)
 
         # ---- 1. OCR (CRITICAL) ------------------------------------------
@@ -209,7 +225,7 @@ class PaperIngestionPipeline:
         ocr_step = self._run_step("OCR", extract_text_from_pdf, file_path, critical=True)
         result.steps.append(ocr_step)
         if ocr_step.status == StepStatus.ERROR:
-            result.total_duration_ms = int((time.time() - t_start) * 1000)
+            result.total_duration_ms = _elapsed_ms(t_start)
             return result
         pages_text: list = ocr_step.data  # [(page_num, text), ...]
 
@@ -217,7 +233,7 @@ class PaperIngestionPipeline:
         parse_step = self._run_step("PARSING", self._parser.parse, pages_text, critical=True)
         result.steps.append(parse_step)
         if parse_step.status == StepStatus.ERROR:
-            result.total_duration_ms = int((time.time() - t_start) * 1000)
+            result.total_duration_ms = _elapsed_ms(t_start)
             return result
         parsed = parse_step.data
 
@@ -261,6 +277,8 @@ class PaperIngestionPipeline:
                 entities=entities,
                 relations=relations,
                 citations=citations,
+                arxiv_id=parsed.arxiv_id,
+                doi=parsed.doi,
             )
 
         graph_step = self._run_step("GRAPH_BUILD", _do_build_graph)
@@ -280,8 +298,9 @@ class PaperIngestionPipeline:
                 result.graph_nodes_count = store_step.data.get("nodes_stored", 0)
                 result.graph_edges_count = store_step.data.get("edges_stored", 0)
 
-            # Attempt citation-stub resolution
-            self._try_resolve_stubs(paper_id, citations)
+            # Attempt citation-stub resolution (both directions -- see
+            # _try_resolve_stubs)
+            self._try_resolve_stubs(paper_id, parsed, citations)
 
         elif self._graph_repo is None:
             result.steps.append(StepResult(
@@ -296,7 +315,15 @@ class PaperIngestionPipeline:
 
         # ---- 8. Build Vector Chunks (non-critical) ----------------------
         def _do_chunking():
-            return self._build_vector_chunks(parsed, entities)
+            chunks = self._build_vector_chunks(parsed, entities)
+            if chunks:
+                return chunks
+            # No abstract/sections/entities were recognized (e.g. a plain
+            # document with none of the academic section headings the
+            # parser looks for) -- fall back to chunking the raw OCR text
+            # directly, so the document still ends up searchable instead
+            # of silently indexing zero chunks.
+            return self._build_raw_text_chunks(pages_text)
 
         chunk_step = self._run_step("CHUNKING", _do_chunking)
         result.steps.append(chunk_step)
@@ -322,24 +349,24 @@ class PaperIngestionPipeline:
             result.steps.append(embed_step)
             vectors = embed_step.data if embed_step.status == StepStatus.SUCCESS else None
 
-        # ---- 10. Store Vectors in Qdrant (non-critical) -----------------
+        # ---- 10. Store Vectors in Weaviate (non-critical) ---------------
         if vectors and self._vector_repo is not None:
-            def _do_qdrant():
+            def _do_vector_store():
                 return self._vector_repo.store_embedded_chunks(paper_id, chunks, vectors)
 
-            qdrant_step = self._run_step("QDRANT_STORE", _do_qdrant)
-            result.steps.append(qdrant_step)
+            vector_step = self._run_step("VECTOR_STORE", _do_vector_store)
+            result.steps.append(vector_step)
             result.vector_count = (
-                qdrant_step.data.get("chunks_stored", 0)
-                if qdrant_step.status == StepStatus.SUCCESS else 0
+                vector_step.data.get("chunks_stored", 0)
+                if vector_step.status == StepStatus.SUCCESS else 0
             )
         else:
             result.steps.append(StepResult(
-                step_name="QDRANT_STORE", status=StepStatus.SKIPPED,
+                step_name="VECTOR_STORE", status=StepStatus.SKIPPED,
                 error="No embeddings to store",
             ))
 
-        result.total_duration_ms = int((time.time() - t_start) * 1000)
+        result.total_duration_ms = _elapsed_ms(t_start)
         logger.info(
             "pipeline_complete",
             paper_id=paper_id,
@@ -402,30 +429,94 @@ class PaperIngestionPipeline:
 
         return chunks
 
+    @staticmethod
+    def _build_raw_text_chunks(raw_pages: List[Tuple[int, str]]) -> List[Dict[str, Any]]:
+        """
+        Fallback chunking over raw OCR page text, word-windowed by
+        ``CHUNK_TOKENS``/``CHUNK_OVERLAP_TOKENS``. Used only when structured
+        extraction (abstract/sections/entities) yields nothing to embed.
+        """
+        chunk_size = settings.CHUNK_TOKENS
+        overlap = settings.CHUNK_OVERLAP_TOKENS
+        chunks: List[Dict[str, Any]] = []
+
+        for page_num, text in raw_pages:
+            words = text.split()
+            if not words:
+                continue
+            i = 0
+            while i < len(words):
+                end = min(i + chunk_size, len(words))
+                chunk_str = " ".join(words[i:end])
+                chunks.append({
+                    "text": chunk_str,
+                    "section": "Raw Text",
+                    "node_type": "Section",
+                    "node_name": f"page_{page_num}",
+                    "source_text": chunk_str,
+                    "page": page_num,
+                })
+                i += (chunk_size - overlap) if chunk_size > overlap else 1
+
+        return chunks
+
     # ------------------------------------------------------------------
     # Citation stub resolution
     # ------------------------------------------------------------------
 
-    def _try_resolve_stubs(self, paper_id: str, citations: List[Dict]) -> None:
+    def _try_resolve_stubs(self, paper_id: str, parsed, citations: List[Dict]) -> None:
         """
-        After storing a paper, check whether any previously-created citation
-        stubs can now point to this real paper.
+        Resolve citation stubs in both possible ingestion orders:
+
+        1. **Cited-paper-arrives-later**: an earlier-ingested paper already
+           cited *this* paper, creating a stub for it keyed by DOI/arXiv ID.
+           If this paper's own identity -- extracted by the parser from its
+           first page, not from its citations -- matches that stub, rewire
+           it to the real node just stored.
+        2. **Citing-paper-arrives-later**: this paper cites another paper
+           that already exists as a real (non-stub) node. Its graph was
+           just built with a fresh stub for that citation (since
+           ``PaperGraphBuilder`` has no Neo4j access to know better) --
+           resolve that stub to the existing real node immediately instead
+           of leaving a redundant stub alongside it.
+
+        Direction 1 uses ``parsed.doi`` / ``parsed.arxiv_id`` (this paper's
+        own identifiers) -- never this paper's citations, which would
+        resolve stubs representing papers *it* cites, not itself, silently
+        corrupting the graph (rewiring this paper's own outgoing CITES edge
+        into a self-loop and deleting the stub for the paper it actually
+        cites -- see docs/decisions.md).
         """
-        if not self._graph_repo or not citations:
+        if not self._graph_repo:
             return
+
+        # 1. Does this paper's own identity resolve a pre-existing stub?
+        self_doi = getattr(parsed, "doi", None)
+        self_arxiv_id = getattr(parsed, "arxiv_id", None)
         try:
-            for cit in citations:
-                doi = cit.get("doi")
-                arxiv_id = cit.get("arxiv_id")
-                if doi:
-                    self._graph_repo.resolve_citation_stub(
-                        f"doi_{doi.lower()}", paper_id
-                    )
-                if arxiv_id:
-                    self._graph_repo.resolve_citation_stub(
-                        f"arxiv_{arxiv_id.lower()}", paper_id
-                    )
+            if self_doi:
+                self._graph_repo.resolve_citation_stub(f"doi_{self_doi.lower()}", paper_id)
+            if self_arxiv_id:
+                self._graph_repo.resolve_citation_stub(f"arxiv_{self_arxiv_id.lower()}", paper_id)
         except Exception as exc:
             logger.warning(
                 "stub_resolution_failed", paper_id=paper_id, error=str(exc)
             )
+
+        # 2. Do any of this paper's citations already have a real node?
+        for cit in citations:
+            cit_doi = cit.get("doi")
+            cit_arxiv_id = cit.get("arxiv_id")
+            try:
+                if cit_doi:
+                    real_id = self._graph_repo.find_real_paper_id(doi=cit_doi)
+                    if real_id and real_id != paper_id:
+                        self._graph_repo.resolve_citation_stub(f"doi_{cit_doi.lower()}", real_id)
+                if cit_arxiv_id:
+                    real_id = self._graph_repo.find_real_paper_id(arxiv_id=cit_arxiv_id)
+                    if real_id and real_id != paper_id:
+                        self._graph_repo.resolve_citation_stub(f"arxiv_{cit_arxiv_id.lower()}", real_id)
+            except Exception as exc:
+                logger.warning(
+                    "cited_paper_stub_resolution_failed", paper_id=paper_id, error=str(exc)
+                )

@@ -57,7 +57,7 @@ class TestNeo4jClientMergeNode:
         with patch("app.storage.neo4j_client.GraphDatabase") as mock_gd:
             mock_gd.driver.return_value = mock_driver
             client.connect()
-            result = client.merge_node("Paper", {"paper_id": "p1", "title": "Test"})
+            result = client.merge_node("Paper", {"node_id": "paper_p1", "paper_id": "p1", "title": "Test"})
 
         assert mock_session.run.called
         # Verify MERGE is used (not CREATE)
@@ -69,7 +69,7 @@ class TestNeo4jClientMergeNode:
     def test_merge_node_missing_key_raises(self):
         client = Neo4jClient(uri="bolt://localhost:7687", user="neo4j", password="pw")
         client._driver = MagicMock()  # Pretend connected
-        with pytest.raises(ValueError, match="missing key property"):
+        with pytest.raises(ValueError, match="missing 'node_id' property"):
             client.merge_node("Paper", {"title": "Test"})
 
 

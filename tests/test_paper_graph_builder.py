@@ -169,3 +169,57 @@ class TestPaperGraphBuilder:
         )
         assert len(result["nodes"]) >= 4  # Paper, Author, Section, Method, Stub
         assert len(result["edges"]) >= 3  # WRITTEN_BY, HAS_SECTION, MENTIONS, CITES
+
+class TestRoleBasedEntityEdges:
+    """
+    The paper-to-entity edge should reflect *how* the paper relates to the
+    entity, not a blanket MENTIONS for everything (issue #15 -- only 3 of
+    the 11 ontology edge types were ever produced).
+    """
+
+    @pytest.mark.parametrize(
+        "role,entity_type,expected_edge",
+        [
+            ("introduces", "Method", "INTRODUCES"),
+            ("uses_method", "Method", "USES_METHOD"),
+            ("uses_dataset", "Dataset", "USES_DATASET"),
+            ("solves_task", "Task", "SOLVES_TASK"),
+        ],
+    )
+    def test_role_maps_to_specific_edge_type(self, builder, role, entity_type, expected_edge):
+        graph = builder.build(
+            paper_id="p1",
+            title="A Paper",
+            entities=[{
+                "name": "Thing", "type": entity_type,
+                "source_section": "Method", "evidence": "some evidence",
+                "role": role,
+            }],
+        )
+        edge_types = {e.edge_type for e in graph["edges"]}
+        assert expected_edge in edge_types
+
+    def test_entity_without_role_still_gets_mentions(self, builder):
+        graph = builder.build(
+            paper_id="p1",
+            title="A Paper",
+            entities=[{
+                "name": "Transformer", "type": "Method",
+                "source_section": "Method", "evidence": "some evidence",
+            }],
+        )
+        assert {e.edge_type for e in graph["edges"]} == {"MENTIONS"}
+
+    def test_role_invalid_for_type_falls_back_to_mentions(self, builder):
+        # A Metric has no Paper->Metric edge other than MENTIONS, so an
+        # inapplicable role must not drop the edge entirely.
+        graph = builder.build(
+            paper_id="p1",
+            title="A Paper",
+            entities=[{
+                "name": "accuracy", "type": "Metric",
+                "source_section": "Results", "evidence": "some evidence",
+                "role": "introduces",
+            }],
+        )
+        assert {e.edge_type for e in graph["edges"]} == {"MENTIONS"}

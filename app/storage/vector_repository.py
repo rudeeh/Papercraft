@@ -2,12 +2,12 @@
 Vector Repository Module (Phase 9.3)
 
 High-level operations for storing and querying paper chunk embeddings
-in Qdrant.  Sits between ``EmbeddingService`` (produces vectors) and
-``QdrantClientWrapper`` (raw Qdrant operations).
+in Weaviate.  Sits between ``EmbeddingService`` (produces vectors) and
+``WeaviateClientWrapper`` (raw Weaviate operations).
 
 Key capabilities
 ----------------
-- ``store_paper_chunks()``: embed text chunks and upsert into Qdrant with
+- ``store_paper_chunks()``: embed text chunks and upsert into Weaviate with
   rich metadata (paper_id, section, page, chunk_index).
 - ``similarity_search()``: embed a query and find top-k similar chunks.
 - ``hybrid_search()``: combine vector similarity with graph context from
@@ -21,7 +21,7 @@ Risk Mitigations Addressed
 - Re-ingestion safety: ``store_paper_chunks`` calls
   ``delete_paper_vectors`` first, so re-ingesting a paper always
   produces a clean state with no stale vectors.
-- Embedding-Qdrant dim mismatch: ``ensure_collection`` is called on
+- Embedding-store dim mismatch: ``ensure_collection`` is called on
   every ``store_paper_chunks`` invocation, so model swaps are handled
   automatically.
 - Missing chunks handled gracefully: empty input lists produce no
@@ -30,32 +30,45 @@ Risk Mitigations Addressed
 
 from __future__ import annotations
 
+import uuid
 from typing import Any, Dict, List, Optional
 
 import structlog
 
 from app.embeddings.embedder import EmbeddingService
-from app.storage.qdrant_client import QdrantClientWrapper
-from qdrant_client.http import models as qmodels
+from app.storage.weaviate_client import VectorPoint, WeaviateClientWrapper
 
 logger = structlog.get_logger()
+
+# Weaviate object IDs must be UUIDs -- an arbitrary string like
+# "<paper_id>__chunk_00000" is rejected. uuid5 gives a deterministic UUID
+# from that same string, so re-ingesting a paper still produces the same
+# object IDs (and Weaviate's PUT batch semantics overwrite in place); the
+# human-readable form is kept in the payload's "chunk_id" field for
+# debugging. The namespace is unchanged from the Qdrant era so vectors
+# migrated between stores keep their IDs.
+_POINT_ID_NAMESPACE = uuid.UUID("c9a646d3-9c61-4d59-8a97-8fdaf6f26f6f")
+
+
+def _chunk_point_id(chunk_id: str) -> str:
+    return str(uuid.uuid5(_POINT_ID_NAMESPACE, chunk_id))
 
 
 class VectorRepository:
     """
     High-level repository for paper vector storage and retrieval.
 
-    Combines embedding generation with Qdrant operations so callers
+    Combines embedding generation with Weaviate operations so callers
     don't need to manage the embedding step separately.
     """
 
     def __init__(
         self,
-        qdrant: QdrantClientWrapper,
+        vector_client: WeaviateClientWrapper,
         embedder: EmbeddingService,
         collection_name: str = "documents",
     ) -> None:
-        self._qdrant = qdrant
+        self._vector_client = vector_client
         self._embedder = embedder
         self._collection = collection_name
 
@@ -73,7 +86,7 @@ class VectorRepository:
         chunks: List[Dict[str, Any]],
     ) -> Dict[str, int]:
         """
-        Embed text chunks and store them in Qdrant.
+        Embed text chunks and store them in Weaviate.
 
         Parameters
         ----------
@@ -121,15 +134,15 @@ class VectorRepository:
             return {"chunks_stored": 0, "chunks_deleted": 0}
 
         # Ensure collection exists with correct dimension
-        self._qdrant.ensure_collection(
+        self._vector_client.ensure_collection(
             collection_name=self._collection,
             vector_dim=self._embedder.embed_dim,
         )
 
         # Delete existing vectors for this paper (re-ingestion safety)
         try:
-            self._qdrant.delete_points(self._collection, paper_id)
-            deleted_estimate = -1  # Qdrant doesn't return count
+            self._vector_client.delete_points(self._collection, paper_id)
+            deleted_estimate = -1  # count not returned by the store
         except Exception as exc:
             logger.warning(
                 "vector_delete_before_upsert_failed",
@@ -138,16 +151,17 @@ class VectorRepository:
             )
             deleted_estimate = 0
 
-        point_ids = [
+        chunk_ids = [
             f"{paper_id}__chunk_{i:05d}" for i in range(len(chunks))
         ]
 
-        # Build Qdrant PointStructs
-        points: List[qmodels.PointStruct] = []
-        for pid, vec, chunk in zip(point_ids, vectors, chunks):
+        # Build storage-agnostic vector points
+        points: List[VectorPoint] = []
+        for chunk_id, vec, chunk in zip(chunk_ids, vectors, chunks):
             payload: Dict[str, Any] = {
                 "paper_id": paper_id,
                 "text": chunk["text"],
+                "chunk_id": chunk_id,
             }
             # Attach optional metadata fields
             for meta_key in (
@@ -158,15 +172,15 @@ class VectorRepository:
                     payload[meta_key] = chunk[meta_key]
 
             points.append(
-                qmodels.PointStruct(
-                    id=pid,
+                VectorPoint(
+                    id=_chunk_point_id(chunk_id),
                     vector=vec,
                     payload=payload,
                 )
             )
 
-        # Upsert in batches (handled by QdrantClientWrapper)
-        stored = self._qdrant.upsert(self._collection, points)
+        # Upsert in batches (handled by WeaviateClientWrapper)
+        stored = self._vector_client.upsert(self._collection, points)
 
         logger.info(
             "paper_chunks_stored",
@@ -202,7 +216,7 @@ class VectorRepository:
         if not query_vector:
             return []
 
-        results = self._qdrant.search(
+        results = self._vector_client.search(
             collection_name=self._collection,
             query_vector=query_vector,
             limit=top_k,
@@ -219,7 +233,7 @@ class VectorRepository:
         """
         Vector search restricted to a graph-derived set of papers.
 
-        This is the bridge between Neo4j (graph) and Qdrant (vectors).
+        This is the bridge between Neo4j (graph) and Weaviate (vectors).
         For example, the graph identifies "papers that cite paper X",
         and then we search *only* within those papers' chunks.
 
@@ -302,7 +316,7 @@ class VectorRepository:
     def delete_paper_vectors(self, paper_id: str) -> None:
         """Remove all vectors for a paper (useful before re-ingestion)."""
         try:
-            self._qdrant.delete_points(self._collection, paper_id)
+            self._vector_client.delete_points(self._collection, paper_id)
             logger.info("paper_vectors_deleted", paper_id=paper_id)
         except Exception as exc:
             logger.error(
@@ -317,4 +331,4 @@ class VectorRepository:
 
     def get_collection_stats(self) -> Optional[Dict[str, Any]]:
         """Return collection metadata (point count, dimension, etc.)."""
-        return self._qdrant.collection_info(self._collection)
+        return self._vector_client.collection_info(self._collection)

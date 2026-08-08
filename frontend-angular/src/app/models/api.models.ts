@@ -22,6 +22,7 @@ export interface Citation {
 export interface ChatRequest {
   query: string;
   doc_id?: string;
+  api_key?: string;
 }
 
 export interface ChatResponse {
@@ -42,6 +43,10 @@ export interface HealthStatus {
   message?: string;
 }
 
+export interface LlmStatus {
+  server_key_configured: boolean;
+}
+
 // ---------------------------------------------------------------------
 // GraphRAG (Phase 16/17)
 // ---------------------------------------------------------------------
@@ -50,6 +55,7 @@ export interface GraphQueryRequest {
   query: string;
   project_id?: string;
   top_k?: number;
+  api_key?: string;
 }
 
 export interface GraphNodeRef {
@@ -104,24 +110,21 @@ export interface GraphQueryResponse {
   retrieval_trace: RetrievalTrace;
 }
 
-export interface PaperGraphNode {
-  id: string;
-  type: string;
-  name?: string;
-  [key: string]: unknown;
-}
 
-export interface PaperGraphEdge {
-  source: string;
-  source_type: string;
-  type: string;
-  target: string;
-  target_type: string;
-  properties?: Record<string, unknown>;
-}
-
-export interface PaperGraphResponse {
+export interface CitationGraphPaper {
   paper_id: string;
-  nodes: PaperGraphNode[];
-  edges: PaperGraphEdge[];
+  title?: string | null;
+  name?: string | null;
+  year?: number | null;
+  is_stub: boolean;
+}
+
+export interface CitationGraphEdge {
+  source: string;
+  target: string;
+}
+
+export interface CitationGraphResponse {
+  papers: CitationGraphPaper[];
+  edges: CitationGraphEdge[];
 }

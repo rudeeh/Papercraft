@@ -97,7 +97,7 @@ class TestPaperIngestionPipeline:
         step_names = {s.step_name for s in result.steps}
         expected_steps = {
             "OCR", "PARSING", "CITATIONS", "ENTITIES", "RELATIONS",
-            "GRAPH_BUILD", "NEO4J_STORE", "CHUNKING", "EMBEDDING", "QDRANT_STORE",
+            "GRAPH_BUILD", "NEO4J_STORE", "CHUNKING", "EMBEDDING", "VECTOR_STORE",
         }
         assert expected_steps.issubset(step_names)
 
@@ -117,3 +117,77 @@ class TestPaperIngestionPipeline:
         assert neo4j_step is not None
         # Should not be skipped since we provided a Neo4j client
         assert neo4j_step.status != StepStatus.SKIPPED
+
+    def test_resolve_citation_stub_called_with_papers_own_arxiv_id(self):
+        """
+        _try_resolve_stubs must use the ingested paper's OWN arxiv_id/doi
+        (from the parser's first-page self-identity extraction), not the
+        arxiv_id/doi of papers it cites -- using the latter would resolve
+        the wrong stub (the one for a paper THIS one cites) and rewire it
+        into a self-loop instead of leaving it for whichever paper it
+        actually represents.
+        """
+        mock_ocr = lambda path: [
+            (1, "arXiv:2101.00001\n\nSelf-Identified Paper\n\nAbstract\nSome text."),
+            (2, 'References\n[1] Other Author. "Some Other Paper." arXiv:1706.03762'),
+        ]
+        mock_client = MagicMock()
+        pipeline = PaperIngestionPipeline(neo4j_client=mock_client)
+        pipeline._graph_repo.resolve_citation_stub = MagicMock()
+        # No pre-existing real paper for the cited work -- isolates this
+        # test to the "own identity" resolution direction only.
+        pipeline._graph_repo.find_real_paper_id = MagicMock(return_value=None)
+
+        with patch("app.services.ocr.extract_text_from_pdf", mock_ocr):
+            pipeline.process(paper_id="p1", file_path="/fake.pdf")
+
+        called_ids = [c.args[0] for c in pipeline._graph_repo.resolve_citation_stub.call_args_list]
+        # Resolved using THIS paper's own arXiv ID (2101.00001) ...
+        assert "arxiv_2101.00001" in called_ids
+        # ... never using the arXiv ID of the paper it cites (1706.03762).
+        assert "arxiv_1706.03762" not in called_ids
+        for c in pipeline._graph_repo.resolve_citation_stub.call_args_list:
+            assert c.args[1] == "p1"
+
+    def test_resolves_citation_to_an_already_real_paper(self):
+        """
+        When this paper cites a paper that already exists as a real
+        (non-stub) node -- the reverse ingestion order from the test above
+        -- the stub PaperGraphBuilder just created for that citation should
+        be resolved to the existing real node right away.
+        """
+        mock_ocr = lambda path: [
+            (1, "A Later Paper\n\nAbstract\nSome text."),
+            (2, 'References\n[1] Other Author. "Earlier Paper." arXiv:1706.03762'),
+        ]
+        mock_client = MagicMock()
+        pipeline = PaperIngestionPipeline(neo4j_client=mock_client)
+        pipeline._graph_repo.resolve_citation_stub = MagicMock()
+        pipeline._graph_repo.find_real_paper_id = MagicMock(return_value="earlier_paper_real_id")
+
+        with patch("app.services.ocr.extract_text_from_pdf", mock_ocr):
+            pipeline.process(paper_id="p1", file_path="/fake.pdf")
+
+        pipeline._graph_repo.find_real_paper_id.assert_any_call(arxiv_id="1706.03762")
+        pipeline._graph_repo.resolve_citation_stub.assert_any_call(
+            "arxiv_1706.03762", "earlier_paper_real_id"
+        )
+
+    def test_does_not_resolve_citation_to_itself(self):
+        """If find_real_paper_id somehow returns this paper's own id (e.g. a
+        paper citing a preprint of itself), resolution must be skipped --
+        never rewire a stub to the citing paper itself."""
+        mock_ocr = lambda path: [
+            (1, "A Paper\n\nAbstract\nSome text."),
+            (2, 'References\n[1] Other Author. "Something." arXiv:1706.03762'),
+        ]
+        mock_client = MagicMock()
+        pipeline = PaperIngestionPipeline(neo4j_client=mock_client)
+        pipeline._graph_repo.resolve_citation_stub = MagicMock()
+        pipeline._graph_repo.find_real_paper_id = MagicMock(return_value="p1")
+
+        with patch("app.services.ocr.extract_text_from_pdf", mock_ocr):
+            pipeline.process(paper_id="p1", file_path="/fake.pdf")
+
+        called_ids = [c.args[0] for c in pipeline._graph_repo.resolve_citation_stub.call_args_list]
+        assert "arxiv_1706.03762" not in called_ids

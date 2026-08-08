@@ -60,12 +60,21 @@ class AnswerGenerator:
         self._llm = llm_client
         self._context_builder = context_builder or ContextBuilder()
 
-    def generate(self, query: str, retrieval_result: Dict[str, Any]) -> Dict[str, Any]:
+    def generate(
+        self,
+        query: str,
+        retrieval_result: Dict[str, Any],
+        api_key: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """
         Parameters
         ----------
         query : the user's original natural-language question
         retrieval_result : output of ``HybridRetriever.retrieve()``
+        api_key : optional OpenRouter API key to use for this call instead
+            of the server-configured one (e.g. supplied by the caller when
+            no server key is configured). Propagates
+            ``app.services.llm.LLMNotConfiguredError`` if neither is set.
 
         Returns
         -------
@@ -79,7 +88,7 @@ class AnswerGenerator:
             answer = NO_CONTEXT_ANSWER
         else:
             prompt = self._build_prompt(query, context["context_text"])
-            answer = self._llm.generate_response(prompt, system_prompt=SYSTEM_PROMPT)
+            answer = self._llm.generate_response(prompt, system_prompt=SYSTEM_PROMPT, api_key=api_key)
 
         logger.info(
             "answer_generated",

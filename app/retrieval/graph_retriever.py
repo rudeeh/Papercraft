@@ -167,15 +167,18 @@ class GraphRetriever:
             "MATCH (e)-[r]-(other) "
             "RETURN type(r) AS relation, "
             "startNode(r).name AS source_name, labels(startNode(r)) AS source_labels, "
+            "startNode(r).paper_id AS source_paper_id, "
             "endNode(r).name AS target_name, labels(endNode(r)) AS target_labels, "
-            "r.evidence AS evidence, "
-            "coalesce(startNode(r).paper_id, endNode(r).paper_id) AS paper_id"
+            "endNode(r).paper_id AS target_paper_id, "
+            "r.evidence AS evidence"
         )
         rows = self._client.query(cypher, {"name": entity_name})
         facts = []
         for row in rows:
-            subject = _node_ref(row.get("source_name"), _first_label(row.get("source_labels")))
-            obj = _node_ref(row.get("target_name"), _first_label(row.get("target_labels")))
+            subject = _node_ref(row.get("source_name"), _first_label(row.get("source_labels")),
+                                 row.get("source_paper_id"))
+            obj = _node_ref(row.get("target_name"), _first_label(row.get("target_labels")),
+                             row.get("target_paper_id"))
             facts.append(_fact(subject, row.get("relation"), obj, evidence=row.get("evidence"),
-                                source_paper_ids=[row.get("paper_id")]))
+                                source_paper_ids=[row.get("source_paper_id"), row.get("target_paper_id")]))
         return facts

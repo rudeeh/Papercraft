@@ -123,12 +123,13 @@ class TestGetEntityRelations:
         retriever, client = _make_retriever([
             {"relation": "IMPROVES_UPON", "source_name": "GPT", "source_labels": ["Method"],
              "target_name": "RNN", "target_labels": ["Method"], "evidence": "GPT beats RNN",
-             "paper_id": "p2"},
+             "source_paper_id": "p2", "target_paper_id": None},
         ])
 
         facts = retriever.get_entity_relations("RNN", "Method")
 
         assert facts[0]["subject"]["name"] == "GPT"
+        assert facts[0]["subject"]["paper_id"] == "p2"
         assert facts[0]["object"]["name"] == "RNN"
         assert facts[0]["relation"] == "IMPROVES_UPON"
         assert facts[0]["source_paper_ids"] == ["p2"]

@@ -10,13 +10,42 @@ import {
   HealthStatus,
   GraphQueryRequest,
   GraphQueryResponse,
-  PaperGraphResponse
+  CitationGraphResponse,
+  LlmStatus
 } from '../models/api.models';
 
 const STORAGE_KEY = 'rag_recent_tasks';
 const API_URL_KEY = 'apiUrl';
-const DEFAULT_API_URL = 'https://docrag-2gvg.onrender.com';
+const LLM_API_KEY_STORAGE = 'openrouter_api_key';
+const DEPLOYED_API_URL = 'https://docrag-2gvg.onrender.com';
+const LOCAL_API_PORT = '8000';
 const KEEP_ALIVE_INTERVAL = 14 * 60 * 1000; // 14 minutes
+
+/**
+ * Where to point when the user hasn't picked an API URL yet.
+ *
+ * Served from localhost (the docker-compose setup puts the frontend on
+ * :8080 and the API on :8000), default to the API on this same host --
+ * hardcoding the deployed URL there meant every fresh local load fired
+ * cross-origin requests at a remote backend, showing "Offline" and
+ * filling the console with CORS errors until you manually retyped the
+ * URL. Reusing ``hostname`` rather than a literal also keeps whichever
+ * form you browsed with ("localhost" vs "127.0.0.1") intact, which
+ * matters when only one of the two resolves to the running container.
+ *
+ * Anywhere else (e.g. the frontend deployed to Vercel), fall back to the
+ * deployed backend as before.
+ */
+function defaultApiUrl(): string {
+  if (typeof window === 'undefined') {
+    return DEPLOYED_API_URL;
+  }
+  const { protocol, hostname } = window.location;
+  if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]') {
+    return `${protocol}//${hostname}:${LOCAL_API_PORT}`;
+  }
+  return DEPLOYED_API_URL;
+}
 
 @Injectable({
   providedIn: 'root'
@@ -27,18 +56,23 @@ export class ApiService {
   apiUrl = signal<string>(this.loadApiUrl());
   healthStatus = signal<HealthStatus>({ online: false });
   recentTasks = signal<RecentTask[]>(this.loadRecentTasks());
+  llmApiKey = signal<string>(this.loadLlmApiKey());
+  // Optimistic default so the "no server key" hint doesn't flash on load;
+  // flips to false shortly after if the server really has none configured.
+  llmStatus = signal<LlmStatus>({ server_key_configured: true });
 
   constructor(private http: HttpClient) {
     this.startKeepAlive();
     this.checkHealth();
+    this.checkLlmStatus();
     setInterval(() => this.checkHealth(), 30000);
   }
 
   private loadApiUrl(): string {
     if (typeof localStorage !== 'undefined') {
-      return localStorage.getItem(API_URL_KEY) || DEFAULT_API_URL;
+      return localStorage.getItem(API_URL_KEY) || defaultApiUrl();
     }
-    return DEFAULT_API_URL;
+    return defaultApiUrl();
   }
 
   setApiUrl(url: string): void {
@@ -48,6 +82,33 @@ export class ApiService {
       localStorage.setItem(API_URL_KEY, cleanUrl);
     }
     this.checkHealth();
+    this.checkLlmStatus();
+  }
+
+  private loadLlmApiKey(): string {
+    if (typeof localStorage !== 'undefined') {
+      return localStorage.getItem(LLM_API_KEY_STORAGE) || '';
+    }
+    return '';
+  }
+
+  setLlmApiKey(key: string): void {
+    const trimmed = key.trim();
+    this.llmApiKey.set(trimmed);
+    if (typeof localStorage !== 'undefined') {
+      if (trimmed) {
+        localStorage.setItem(LLM_API_KEY_STORAGE, trimmed);
+      } else {
+        localStorage.removeItem(LLM_API_KEY_STORAGE);
+      }
+    }
+  }
+
+  checkLlmStatus(): void {
+    this.http.get<LlmStatus>(`${this.apiUrl()}/api/v1/llm-status`).subscribe({
+      next: (status) => this.llmStatus.set(status),
+      error: () => this.llmStatus.set({ server_key_configured: true }) // fail open -- don't nag if we can't tell
+    });
   }
 
   private startKeepAlive(): void {
@@ -101,19 +162,21 @@ export class ApiService {
   }
 
   chat(request: ChatRequest): Observable<ChatResponse> {
-    return this.http.post<ChatResponse>(`${this.apiUrl()}/api/v1/chat`, request).pipe(
+    const payload = { ...request, api_key: request.api_key || this.llmApiKey() || undefined };
+    return this.http.post<ChatResponse>(`${this.apiUrl()}/api/v1/chat`, payload).pipe(
       catchError(this.handleError)
     );
   }
 
   graphQuery(request: GraphQueryRequest): Observable<GraphQueryResponse> {
-    return this.http.post<GraphQueryResponse>(`${this.apiUrl()}/api/v1/graph-query`, request).pipe(
+    const payload = { ...request, api_key: request.api_key || this.llmApiKey() || undefined };
+    return this.http.post<GraphQueryResponse>(`${this.apiUrl()}/api/v1/graph-query`, payload).pipe(
       catchError(this.handleError)
     );
   }
 
-  getPaperGraph(paperId: string): Observable<PaperGraphResponse> {
-    return this.http.get<PaperGraphResponse>(`${this.apiUrl()}/api/v1/papers/${paperId}/graph`).pipe(
+  getCitationGraph(): Observable<CitationGraphResponse> {
+    return this.http.get<CitationGraphResponse>(`${this.apiUrl()}/api/v1/citation-graph`).pipe(
       catchError(this.handleError)
     );
   }

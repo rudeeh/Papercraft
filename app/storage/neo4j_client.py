@@ -105,19 +105,10 @@ class Neo4jClient:
         """
         self._ensure_connected()
 
-        # --- Unique constraints (also serve as existence indexes) ---
-        constraints = [
-            ("Paper", "paper_id"),
-            ("Author", "name"),
-            ("Institution", "name"),
-            ("Method", "name"),
-            ("Dataset", "name"),
-            ("Task", "name"),
-            ("Metric", "name"),
-            ("Claim", "claim_id"),
-            ("Experiment", "experiment_id"),
-            ("Section", "section_id"),
-        ]
+        # --- Unique constraints on node_id (also serve as existence indexes) ---
+        # node_id -- not the per-type business key in NODE_KEY_MAP -- is the
+        # actual MERGE anchor for every label; see merge_node().
+        constraints = [(label, "node_id") for label in NODE_KEY_MAP]
 
         with self.session() as sess:
             for label, prop in constraints:
@@ -134,12 +125,17 @@ class Neo4jClient:
                         "constraint_failed", label=label, prop=prop, error=str(exc)
                     )
 
-            # --- Additional range indexes for common query patterns ---
+            # --- Non-unique indexes on the business keys retrieval queries
+            # filter by (e.g. MATCH (m:Method {name: $name})) ---
             extra_indexes = [
                 ("Paper", "title"),
                 ("Paper", "year"),
                 ("Paper", "doi"),
                 ("Paper", "arxiv_id"),
+                ("Paper", "paper_id"),
+            ] + [
+                (label, "name")
+                for label in ("Author", "Institution", "Method", "Dataset", "Task", "Metric")
             ]
             for label, prop in extra_indexes:
                 try:
@@ -161,19 +157,26 @@ class Neo4jClient:
         """
         MERGE a node: create if missing, update properties if exists.
 
-        The primary-key property (from ``NODE_KEY_MAP``) is used as the
-        MERGE anchor.  All other properties are SET on both CREATE and
-        MATCH so re-ingestion overwrites stale data.
+        ``node_id`` is always the MERGE anchor -- it's the one property every
+        node in the ontology is guaranteed to carry a stable, globally unique
+        value for (see ``app.graph.ontology.Node``). Business keys like
+        ``name`` / ``paper_id`` (``NODE_KEY_MAP``) are stored as ordinary
+        properties and indexed for lookups, but are not used to identify the
+        node -- edges are built from ``node_id`` values (via
+        ``PaperGraphBuilder``), so anchoring MERGE on anything else would
+        silently fail to match the nodes those edges are meant to connect.
+        All other properties are SET on both CREATE and MATCH so
+        re-ingestion overwrites stale data.
         """
         self._ensure_connected()
 
-        key_prop = NODE_KEY_MAP.get(label)
-        if not key_prop or key_prop not in properties:
+        if "node_id" not in properties:
             raise ValueError(
-                f"Cannot MERGE {label}: missing key property '{key_prop}'. "
+                f"Cannot MERGE {label}: missing 'node_id' property. "
                 f"Provided keys: {list(properties.keys())}"
             )
 
+        key_prop = "node_id"
         key_value = properties[key_prop]
         other_props = {k: v for k, v in properties.items() if k != key_prop}
 
@@ -270,30 +273,6 @@ class Neo4jClient:
         with self.session() as sess:
             result = sess.run(cypher, params)
             return [dict(record) for record in result]
-
-    # ------------------------------------------------------------------
-    # Convenience queries
-    # ------------------------------------------------------------------
-
-    def get_paper_graph(self, paper_id: str) -> List[Dict]:
-        """Return every node and edge reachable from a Paper node."""
-        cypher = (
-            "MATCH (p:Paper {paper_id: $paper_id}) "
-            "OPTIONAL MATCH (p)-[r]-(n) "
-            "RETURN p, r, n"
-        )
-        return self.query(cypher, {"paper_id": paper_id})
-
-    def delete_paper_graph(self, paper_id: str) -> int:
-        """DETACH DELETE a Paper and count removed nodes."""
-        results = self.query(
-            "MATCH (p:Paper {paper_id: $pid}) "
-            "OPTIONAL MATCH (p)-[r]-(n) "
-            "DETACH DELETE p "
-            "RETURN count(p) AS deleted",
-            {"pid": paper_id},
-        )
-        return results[0]["deleted"] if results else 0
 
     def health_check(self) -> bool:
         """Return True if Neo4j is reachable and responding."""

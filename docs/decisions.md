@@ -149,3 +149,38 @@ instead of one per fixed-size word chunk), and the GraphRAG vector chunks
 are a different granularity than the legacy chat path's chunks living in
 the same collection (see the "graph pipeline beside existing RAG" entry
 above).
+
+---
+
+## ADR: Weaviate replaces Qdrant as the vector store (Papercraft)
+
+**Decision (2026-08-07):** Swap the vector store from Qdrant to Weaviate
+1.28, per the Papercraft spec and the clone-and-adapt plan's vector-DB
+decision (Option B, chosen by the project owners). `WeaviateClientWrapper`
+(`app/storage/weaviate_client.py`) replaces `QdrantClientWrapper` with the
+same public surface; `VectorRepository`, the legacy `/chat` vector path,
+worker, API, and eval harness all swapped in the same change.
+
+**What was deliberately preserved:**
+- The payload schema (`paper_id`, `text`, `chunk_id`, `section`, `page`,
+  `chunk_index`, `node_type`, `node_name`, `source_text`) — now declared
+  as an explicit Weaviate property schema.
+- Deterministic uuid5 chunk IDs (same namespace), so re-ingestion stays
+  idempotent via Weaviate's PUT batch semantics.
+- Score semantics: `search()` returns similarity (`1 - distance`), so
+  cosine scores are comparable to the old Qdrant scores.
+- Dimension-mismatch recreate-on-model-swap: Weaviate doesn't record a
+  dim for self-provided vectors, so it's stored in the collection
+  description (`dim=384`) and validated by `ensure_collection()`.
+
+**Notes:** Weaviate class names must match `[A-Z][_0-9A-Za-z]*`, so
+config collection names are normalized (`documents` -> `Documents`).
+The v4 python client needs the gRPC port (50051) exposed alongside HTTP.
+In docker-compose the Weaviate HTTP port maps to host 8082 because the
+Angular frontend still holds 8080; in-network services use
+`http://weaviate:8080` regardless.
+
+**Verified:** full unit suite (326 passing, Weaviate client + repository
+mocked tests included) plus a live smoke test against a real Weaviate
+1.28.4 (store, filtered search, hybrid graph-filter search, paper
+aggregation, idempotent re-ingestion, dim-recreate).

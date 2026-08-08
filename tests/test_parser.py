@@ -271,3 +271,49 @@ class TestPaperParserMultiPage:
 
         result = parser.parse(pages_text)
         assert result.raw_pages == pages_text
+
+
+class TestPaperParserSelfIdentity:
+    """This paper's own arXiv ID / DOI, used later for citation-stub resolution."""
+
+    def test_extracts_own_arxiv_id_from_first_page(self):
+        parser = PaperParser()
+        pages_text = [
+            (1, "arXiv:2101.00001\n\nA Paper Title\n\nAbstract\nSome abstract text here."),
+        ]
+        result = parser.parse(pages_text)
+        assert result.arxiv_id == "2101.00001"
+
+    def test_extracts_own_doi_from_first_page(self):
+        parser = PaperParser()
+        pages_text = [
+            (1, "A Paper Title\ndoi: 10.1234/example.2021\n\nAbstract\nSome text."),
+        ]
+        result = parser.parse(pages_text)
+        assert result.doi == "10.1234/example.2021"
+
+    def test_no_self_identifier_found_is_none(self):
+        parser = PaperParser()
+        pages_text = [(1, "A Paper Title\n\nAbstract\nSome text with no identifiers.")]
+        result = parser.parse(pages_text)
+        assert result.arxiv_id is None
+        assert result.doi is None
+
+    def test_only_first_page_is_searched_not_references(self):
+        """A cited paper's arXiv ID in the References section (page 2) must
+        not be mistaken for this paper's own identity."""
+        parser = PaperParser()
+        pages_text = [
+            (1, "A Paper Title\n\nAbstract\nSome text."),
+            (2, "References\n[1] Someone. Other Paper. arXiv:1706.03762"),
+        ]
+        result = parser.parse(pages_text)
+        assert result.arxiv_id is None
+
+    def test_to_dict_includes_self_identity(self):
+        parser = PaperParser()
+        pages_text = [(1, "arXiv:2101.00001\n\nTitle\n\nAbstract\nText.")]
+        result = parser.parse(pages_text)
+        d = result.to_dict()
+        assert d["arxiv_id"] == "2101.00001"
+        assert d["doi"] is None

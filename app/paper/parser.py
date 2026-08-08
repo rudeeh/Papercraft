@@ -32,6 +32,12 @@ class PaperParseResult:
         self.sections: List[Dict[str, str]] = []  # [{"heading": str, "text": str}]
         self.references: List[Dict] = []  # [{title, authors, year, doi, arxiv_id}]
         self.raw_pages: List[Tuple[int, str]] = []  # [(page_num, text)]
+        # This paper's own identity (not a cited paper's) -- printed in the
+        # header of the first page for arXiv preprints / journal articles.
+        # Used to resolve citation stubs when an earlier-ingested paper
+        # already cites this one (see GraphRepository.resolve_citation_stub).
+        self.arxiv_id: Optional[str] = None
+        self.doi: Optional[str] = None
 
     def to_dict(self) -> dict:
         """Convert to dictionary for serialization."""
@@ -41,6 +47,8 @@ class PaperParseResult:
             "sections": self.sections,
             "references": self.references,
             "raw_pages": self.raw_pages,
+            "arxiv_id": self.arxiv_id,
+            "doi": self.doi,
         }
 
 
@@ -107,15 +115,44 @@ class PaperParser:
         # Extract references
         result.references = self._extract_references(full_text)
 
+        # Extract this paper's own arXiv ID / DOI from the first page only
+        # (where preprints/journals print it) -- searching the full text
+        # would pick up a *cited* paper's identifier from the references
+        # section instead of this paper's own.
+        first_page_text = pages_text[0][1] if pages_text else ""
+        result.arxiv_id = self._extract_self_arxiv_id(first_page_text)
+        result.doi = self._extract_self_doi(first_page_text)
+
         logger.info(
             "paper_parsed",
             title=result.title,
             abstract_length=len(result.abstract) if result.abstract else 0,
             num_sections=len(result.sections),
             num_references=len(result.references),
+            arxiv_id=result.arxiv_id,
+            doi=result.doi,
         )
 
         return result
+
+    # arXiv IDs / DOIs are conventionally printed in the header, right by
+    # the title -- restricting to this window (rather than the whole first
+    # page) keeps a short/single-page paper's own References section from
+    # being mistaken for its self-identity, which would otherwise corrupt
+    # citation-stub resolution (see docs/decisions.md).
+    _SELF_IDENTITY_WINDOW = 600
+
+    def _extract_self_arxiv_id(self, first_page_text: str) -> Optional[str]:
+        """Extract this paper's own arXiv ID (e.g. printed as 'arXiv:2101.00001')."""
+        header = first_page_text[: self._SELF_IDENTITY_WINDOW]
+        match = re.search(r"arXiv:\s*(\d{4}\.\d{4,5})", header, re.IGNORECASE)
+        return match.group(1) if match else None
+
+    def _extract_self_doi(self, first_page_text: str) -> Optional[str]:
+        """Extract this paper's own DOI (e.g. printed as 'doi: 10.1234/abcd')."""
+        header = first_page_text[: self._SELF_IDENTITY_WINDOW]
+        match = re.search(r"\bdoi:?\s*(10\.\d{4,9}/\S+)", header, re.IGNORECASE)
+        return match.group(1).rstrip(".,;)") if match else None
 
     def _extract_title(self, text: str) -> Optional[str]:
         """

@@ -11,12 +11,13 @@ class Settings(BaseSettings):
     # Redis
     REDIS_URL: str = "redis://redis:6379/0"
 
-    # Qdrant
-    QDRANT_URL: str = "http://qdrant:6333"
-    QDRANT_API_KEY: Optional[str] = None
-    QDRANT_COLLECTION_NAME: str = "documents"
-    QDRANT_DISTANCE_METRIC: str = "cosine"  # "cosine" | "euclid" | "dot"
-    QDRANT_BATCH_SIZE: int = 128
+    # Weaviate (vector store — ADR: Weaviate, replacing Qdrant)
+    WEAVIATE_URL: str = "http://weaviate:8080"
+    WEAVIATE_GRPC_PORT: int = 50051
+    WEAVIATE_API_KEY: Optional[str] = None
+    WEAVIATE_COLLECTION_NAME: str = "Documents"
+    WEAVIATE_DISTANCE_METRIC: str = "cosine"  # "cosine" | "euclid" | "dot"
+    WEAVIATE_BATCH_SIZE: int = 128
 
     # Neo4j  (Phase 8)
     NEO4J_URI: str = "bolt://neo4j:7687"
@@ -24,11 +25,12 @@ class Settings(BaseSettings):
     NEO4J_PASSWORD: str = "password"
     NEO4J_DATABASE: str = "neo4j"
 
-    # LLM
-    OPENROUTER_API_KEY: Optional[str] = "sk-or-v1-your-key-here"
-    OLLAMA_BASE_URL: str = "http://ollama:11434"
-    LLM_PROVIDER: str = "openrouter" # ollama or openrouter
-    LLM_MODEL: str = "meta-llama/llama-3-8b-instruct:free" # e.g. "llama3" for ollama or "mistralai/mistral-7b-instruct" for openrouter
+    # LLM (OpenRouter only -- see docs/decisions.md)
+    # Server-side key is optional: if unset, requests must supply their own
+    # OpenRouter key (e.g. entered in the frontend header) or the LLM calls
+    # fail with a clear "no API key" error rather than a silent one.
+    OPENROUTER_API_KEY: Optional[str] = None
+    LLM_MODEL: str = "openai/gpt-oss-20b:free"
 
     # Embeddings (Phase 9)
     EMBEDDING_PROVIDER: str = "local"   # "local" | "openai" | "stub"

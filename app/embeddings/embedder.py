@@ -25,7 +25,7 @@ Risk Mitigations Addressed
 - Model loading failure: caught once on first call; subsequent calls raise
   immediately with a clear message.
 - Dimension mismatch: ``embed_dim`` property always reflects the *actual*
-  loaded model output, preventing silent Qdrant insert failures.
+  loaded model output, preventing silent vector-store insert failures.
 - Rate limiting (OpenAI): exponential backoff with jitter on 429 responses.
 """
 

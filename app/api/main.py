@@ -1,12 +1,9 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
-from fastapi.staticfiles import StaticFiles
 from app.api.routes import router
 from app.api.graph_routes import router as graph_router
 from app.core.config import settings
 import structlog
-import os
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
@@ -36,6 +33,23 @@ async def lifespan(app: FastAPI):
     import os
     os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
 
+    # Pre-warm the embedding model. It's lazily loaded on first use by
+    # design (keeps a plain worker/api boot fast when nothing needs it
+    # yet), but that means the *first* /chat request after a fresh start
+    # pays the multi-second model-load cost synchronously, inline in the
+    # request -- long enough in practice to trip a client-side timeout,
+    # which then looks like a network failure even though the server goes
+    # on to complete the request fine (visible in the logs as a 200).
+    # Loading it here instead, before the server starts accepting traffic,
+    # means no real request ever pays that cost.
+    import asyncio
+    from app.services.embeddings import get_model
+    try:
+        await asyncio.to_thread(get_model)
+        logger.info("Embedding model pre-warmed")
+    except Exception as exc:
+        logger.warning(f"Embedding model pre-warm failed (falls back to lazy load): {exc}")
+
     yield
 
     # SHUTDOWN LOGIC
@@ -60,20 +74,6 @@ app.add_middleware(
 
 app.include_router(router, prefix="/api/v1")
 app.include_router(graph_router, prefix="/api/v1")
-
-# Serve the citation constellation visualizer
-STATIC_DIR = os.path.join(os.path.dirname(__file__), "..", "static")
-STATIC_DIR = os.path.normpath(STATIC_DIR)
-if os.path.isdir(STATIC_DIR):
-    app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
-
-@app.get("/graph-visualizer")
-async def graph_visualizer():
-    """Serve the interactive citation constellation visualization."""
-    html_path = os.path.join(STATIC_DIR, "graph_visualizer.html")
-    if os.path.exists(html_path):
-        return FileResponse(html_path, media_type="text/html")
-    return {"error": "graph_visualizer.html not found"}
 
 @app.get("/")
 async def root():

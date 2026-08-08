@@ -26,8 +26,8 @@ cp .env.example .env
 | `QDRANT_COLLECTION_NAME` | `documents` | Shared by the legacy chat path and GraphRAG |
 | `NEO4J_URI` | `bolt://neo4j:7687` | Graph store |
 | `NEO4J_USER` / `NEO4J_PASSWORD` | `neo4j` / `password` | Must match `docker-compose.yml`'s `NEO4J_AUTH` |
-| `LLM_PROVIDER` | `ollama` | `ollama` (local, free) or `openrouter` (cloud, paid) |
-| `LLM_MODEL` | `llama3` | See README.md for provider-specific model names |
+| `OPENROUTER_API_KEY` | _(empty)_ | Optional -- if unset, every `/chat`/`/graph-query` request must supply its own key (e.g. the frontend header's "OpenRouter Key" field) or it 401s |
+| `LLM_MODEL` | `openai/gpt-oss-20b:free` | Must be a valid, currently-listed OpenRouter model slug -- these get renamed/retired over time, see https://openrouter.ai/models |
 | `EMBEDDING_PROVIDER` | `local` | `local` (sentence-transformers) \| `openai` \| `stub` (deterministic, no model download -- tests/dev only) |
 | `EMBEDDING_MODEL` | `all-MiniLM-L6-v2` | Only used when `EMBEDDING_PROVIDER=local` |
 | `OPENAI_API_KEY` | _(empty)_ | Required only if `EMBEDDING_PROVIDER=openai` |
@@ -52,7 +52,6 @@ This starts:
 | `redis` | 6379 | Celery broker/backend |
 | `qdrant` | 6333 | Vector store |
 | `neo4j` | 7474 (browser UI), 7687 (Bolt) | Graph store |
-| `ollama` | 11434 | Local LLM (only used if `LLM_PROVIDER=ollama`) |
 | `api` | 8000 | FastAPI backend |
 | `worker` | -- | Celery ingestion worker |
 | `frontend` | 8080 | Angular app (built, served via nginx) |
@@ -64,11 +63,8 @@ up` may take ~30s before the API is reachable.
 Browse the graph directly at **http://localhost:7474** (login
 `neo4j` / `password`, or whatever you set in `.env` / `docker-compose.yml`).
 
-If using Ollama, pull the model once the containers are up:
-
-```bash
-docker-compose exec ollama ollama pull llama3
-```
+All LLM calls go through OpenRouter -- set `OPENROUTER_API_KEY` in `.env`,
+or leave it unset and supply a key per-request (see section 1 above).
 
 Run the test suite inside the container:
 
@@ -167,17 +163,21 @@ files.
 ## 7. Common issues
 
 See README.md's Troubleshooting section for the vector-RAG-specific
-issues (Ollama model not found, CORS, embedding model changes, etc.).
+issues (OpenRouter model/key errors, CORS, embedding model changes, etc.).
 GraphRAG-specific:
 
+- **`/graph-query` or `/chat` returns 401** -- no OpenRouter API key
+  available (neither `OPENROUTER_API_KEY` on the server nor one supplied
+  with the request). Set one in `.env`, or in the frontend header's
+  "OpenRouter Key" field.
 - **`/graph-query` returns 503** -- Neo4j or Qdrant isn't reachable from
   the API container/process. Check `docker-compose ps` and
   `docker-compose logs neo4j`.
-- **`GET /papers/{paper_id}/graph` returns 404 for a paper you just
-  uploaded** -- ingestion is async; check
-  `GET /api/v1/status/{task_id}` first to confirm the `NEO4J_STORE` step
-  succeeded (not `SKIPPED` -- that means Neo4j wasn't reachable during
-  ingestion, in which case re-ingest with `?force=true` once it is).
+- **A paper doesn't show up in the citation graph after uploading** --
+  ingestion is async; check `GET /api/v1/status/{task_id}` first to
+  confirm the `NEO4J_STORE` step succeeded (not `SKIPPED` -- that means
+  Neo4j wasn't reachable during ingestion, in which case re-ingest with
+  `?force=true` once it is).
 - **Citation/entity graph looks sparse** -- entity and relation extraction
   are deterministic pattern matchers (see `architecture.md` section 6),
   not an LLM -- they only recognize the method/dataset/task/metric names

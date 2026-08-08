@@ -4,8 +4,8 @@ Graph Query API Routes (Phase 16)
 Exposes the GraphRAG retrieval + answer-generation stack (Phases 11-15)
 through FastAPI:
 
-    POST /graph-query           -- ask a question, get a grounded answer
-    GET  /papers/{paper_id}/graph -- fetch a single paper's knowledge graph
+    POST /graph-query     -- ask a question, get a grounded answer
+    GET  /citation-graph  -- the cross-paper citation network
 
 Kept in its own module (rather than a routes/ package) since the existing
 codebase uses a flat app/api/routes.py -- this file defines a second
@@ -20,7 +20,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from app.core.config import settings
 from app.storage.neo4j_client import Neo4jClient
-from app.storage.qdrant_client import QdrantClientWrapper
+from app.storage.weaviate_client import WeaviateClientWrapper
 from app.storage.vector_repository import VectorRepository
 from app.storage.graph_repository import GraphRepository
 from app.embeddings.embedder import EmbeddingService
@@ -29,6 +29,7 @@ from app.retrieval.vector_retriever import VectorRetriever
 from app.retrieval.citation_expander import CitationExpander
 from app.retrieval.hybrid_retriever import HybridRetriever
 from app.llm.answer_generator import AnswerGenerator
+from app.services.llm import LLMNotConfiguredError
 
 logger = structlog.get_logger()
 
@@ -43,6 +44,7 @@ class GraphQueryRequest(BaseModel):
     query: str
     project_id: Optional[str] = None
     top_k: int = Field(default=10, ge=1, le=50)
+    api_key: Optional[str] = None  # OpenRouter key, used if the server has none configured
 
     @field_validator("query")
     @classmethod
@@ -93,15 +95,21 @@ def get_neo4j_client() -> Neo4jClient:
 def get_vector_repo() -> VectorRepository:
     global _vector_repo
     if _vector_repo is None:
-        qdrant = QdrantClientWrapper(url=settings.QDRANT_URL, api_key=settings.QDRANT_API_KEY)
-        qdrant.connect()
+        weaviate_client = WeaviateClientWrapper(
+            url=settings.WEAVIATE_URL,
+            api_key=settings.WEAVIATE_API_KEY,
+            grpc_port=settings.WEAVIATE_GRPC_PORT,
+            batch_size=settings.WEAVIATE_BATCH_SIZE,
+        )
+        weaviate_client.connect()
         embedder = EmbeddingService(
             provider=settings.EMBEDDING_PROVIDER,
             model_name=settings.EMBEDDING_MODEL,
             batch_size=settings.EMBEDDING_BATCH_SIZE,
         )
         _vector_repo = VectorRepository(
-            qdrant, embedder, collection_name=settings.QDRANT_COLLECTION_NAME
+            weaviate_client, embedder,
+            collection_name=settings.WEAVIATE_COLLECTION_NAME
         )
     return _vector_repo
 
@@ -141,7 +149,10 @@ async def graph_query(
             status_code=503, detail="Graph/vector store is currently unavailable"
         ) from exc
 
-    generated = answer_generator.generate(body.query, retrieval_result)
+    try:
+        generated = answer_generator.generate(body.query, retrieval_result, api_key=body.api_key)
+    except LLMNotConfiguredError as exc:
+        raise HTTPException(status_code=401, detail=str(exc))
 
     return {
         "answer": generated["answer"],
@@ -157,24 +168,18 @@ async def graph_query(
     }
 
 
-@router.get("/papers/{paper_id}/graph")
-async def get_paper_graph(
-    paper_id: str,
+@router.get("/citation-graph")
+async def get_citation_graph(
     graph_repo: GraphRepository = Depends(get_graph_repository),
 ):
+    """
+    Return the whole cross-paper citation network (every ingested paper,
+    real or stub, plus every CITES edge) -- for the global graph explorer.
+    """
     try:
-        graph = graph_repo.get_paper_graph(paper_id)
+        return graph_repo.get_citation_graph()
     except Exception as exc:
-        logger.error("paper_graph_fetch_failed", paper_id=paper_id, error=str(exc))
+        logger.error("citation_graph_fetch_failed", error=str(exc))
         raise HTTPException(
             status_code=503, detail="Graph store is currently unavailable"
         ) from exc
-
-    if not graph:
-        raise HTTPException(status_code=404, detail=f"Paper '{paper_id}' not found")
-
-    return {
-        "paper_id": paper_id,
-        "nodes": graph["nodes"],
-        "edges": graph["edges"],
-    }

@@ -42,6 +42,14 @@ class PaperGraphBuilder:
     to the ontology defined in ``app/graph/ontology.py``.
     """
 
+    # EntityExtractor role -> the Paper->entity ontology edge it implies.
+    _ROLE_EDGE_TYPES = {
+        "introduces": "INTRODUCES",
+        "uses_method": "USES_METHOD",
+        "uses_dataset": "USES_DATASET",
+        "solves_task": "SOLVES_TASK",
+    }
+
     def __init__(self) -> None:
         self._validator = OntologyValidator()
 
@@ -60,6 +68,8 @@ class PaperGraphBuilder:
         entities: Optional[List[Dict[str, str]]] = None,
         relations: Optional[List[Dict[str, str]]] = None,
         citations: Optional[List[Dict[str, Any]]] = None,
+        arxiv_id: Optional[str] = None,
+        doi: Optional[str] = None,
     ) -> Dict[str, List]:
         """
         Build a paper knowledge graph.
@@ -76,6 +86,10 @@ class PaperGraphBuilder:
         relations : optional list[{"source": str, "source_type": str, "relation": str,
                                     "target": str, "target_type": str, "evidence": str}]
         citations : optional list[normalised reference dicts from CitationNormalizer]
+        arxiv_id, doi : optional str
+            This paper's own arXiv ID / DOI (not a cited paper's), if the
+            parser found one -- lets ``GraphRepository.resolve_citation_stub``
+            rewire any pre-existing stub for this paper to the real node.
 
         Returns
         -------
@@ -91,7 +105,7 @@ class PaperGraphBuilder:
         edges: List[Edge] = []
 
         # 1. Paper node
-        paper_node = self._make_paper_node(paper_id, title, abstract, authors, year)
+        paper_node = self._make_paper_node(paper_id, title, abstract, authors, year, arxiv_id, doi)
         nodes.append(paper_node)
 
         # 2. Author nodes  +  WRITTEN_BY edges
@@ -130,13 +144,27 @@ class PaperGraphBuilder:
             entity_id_map[key] = ent_node.node_id
             nodes.append(ent_node)
 
-            mention_edge = self._safe_edge(
+            # Prefer the specific ontology edge the extractor inferred
+            # from the sentence ("we propose X" -> INTRODUCES) and fall
+            # back to MENTIONS. Previously every entity got a blanket
+            # MENTIONS, which is why the graph only ever showed three of
+            # the eleven defined edge types.
+            edge_type = self._ROLE_EDGE_TYPES.get(ent.get("role"), "MENTIONS")
+            entity_edge = self._safe_edge(
+                paper_node.node_id, "Paper",
+                edge_type,
+                ent_node.node_id, ent["type"],
+                evidence=ent.get("evidence"),
+            ) or self._safe_edge(
+                # Role edge rejected by the ontology for this node type
+                # (e.g. a Metric can only be MENTIONS-ed) -- don't lose
+                # the edge entirely.
                 paper_node.node_id, "Paper",
                 "MENTIONS",
                 ent_node.node_id, ent["type"],
             )
-            if mention_edge:
-                edges.append(mention_edge)
+            if entity_edge:
+                edges.append(entity_edge)
 
         # 5. Relation edges between entities
         for rel in relations:
@@ -177,6 +205,8 @@ class PaperGraphBuilder:
         abstract: Optional[str],
         authors: List[str],
         year: Optional[int],
+        arxiv_id: Optional[str] = None,
+        doi: Optional[str] = None,
     ) -> Node:
         props: Dict[str, Any] = {}
         if title:
@@ -187,6 +217,10 @@ class PaperGraphBuilder:
             props["year"] = year
         if authors:
             props["author_names"] = authors
+        if arxiv_id:
+            props["arxiv_id"] = arxiv_id
+        if doi:
+            props["doi"] = doi
         props["is_stub"] = False
 
         return Node(

@@ -10,7 +10,8 @@ import { UploadResponse } from '../../models/api.models';
   imports: [CommonModule, FormsModule],
   template: `
     <div class="card">
-      <h2>1. Upload PDF</h2>
+      <h2>Upload a document</h2>
+      <p class="hint">Add a PDF, then ask questions about it below once it's finished processing.</p>
 
       <div class="form-group">
         <div
@@ -73,17 +74,23 @@ import { UploadResponse } from '../../models/api.models';
   `,
   styles: [`
     .card {
-      background: #fff;
-      border: 1px solid #e0e0e0;
+      background: var(--color-white);
+      border: 1px solid var(--color-border);
       border-radius: 8px;
       padding: 1.5rem;
     }
 
     h2 {
-      margin: 0 0 1.25rem;
+      margin: 0 0 0.5rem;
       font-size: 1.125rem;
       font-weight: 600;
-      color: #1a1a1a;
+      color: var(--color-black);
+    }
+
+    .hint {
+      margin: 0 0 1.25rem;
+      color: var(--color-medium-gray);
+      font-size: 0.8125rem;
     }
 
     .form-group {
@@ -91,29 +98,29 @@ import { UploadResponse } from '../../models/api.models';
     }
 
     .file-drop-zone {
-      border: 2px dashed #ccc;
+      border: 2px dashed var(--color-input-border);
       border-radius: 8px;
       padding: 2rem;
       text-align: center;
       cursor: pointer;
       transition: all 0.2s;
-      background: #fafafa;
+      background: var(--color-surface-alt);
     }
 
     .file-drop-zone:hover,
     .file-drop-zone.dragover {
-      border-color: #666;
-      background: #f0f0f0;
+      border-color: var(--color-medium-gray);
+      background: var(--color-surface-hover);
     }
 
     .file-drop-zone.has-file {
       border-style: solid;
-      border-color: #28a745;
-      background: #f8fff8;
+      border-color: var(--color-success);
+      background: var(--color-success-bg);
     }
 
     .drop-text {
-      color: #666;
+      color: var(--color-medium-gray);
       font-size: 0.9375rem;
     }
 
@@ -130,13 +137,13 @@ import { UploadResponse } from '../../models/api.models';
 
     .file-name {
       font-weight: 500;
-      color: #1a1a1a;
+      color: var(--color-black);
     }
 
     .remove-btn {
       background: none;
       border: none;
-      color: #999;
+      color: var(--color-light-gray);
       cursor: pointer;
       font-size: 1rem;
       padding: 0.25rem;
@@ -144,7 +151,7 @@ import { UploadResponse } from '../../models/api.models';
     }
 
     .remove-btn:hover {
-      color: #dc3545;
+      color: var(--color-error);
     }
 
     .checkbox-group label {
@@ -153,7 +160,7 @@ import { UploadResponse } from '../../models/api.models';
       gap: 0.5rem;
       cursor: pointer;
       font-size: 0.9375rem;
-      color: #444;
+      color: var(--color-dark-gray);
     }
 
     .checkbox-group input[type="checkbox"] {
@@ -178,22 +185,22 @@ import { UploadResponse } from '../../models/api.models';
     }
 
     .btn-primary {
-      background: #1a1a1a;
-      color: #fff;
+      background: var(--accent-bg);
+      color: var(--accent-text);
     }
 
     .btn-primary:hover:not(:disabled) {
-      background: #333;
+      background: var(--accent-bg-hover);
     }
 
     .btn-secondary {
-      background: #f5f5f5;
-      color: #1a1a1a;
-      border: 1px solid #ddd;
+      background: var(--color-surface-hover);
+      color: var(--color-black);
+      border: 1px solid var(--color-input-border);
     }
 
     .btn-secondary:hover:not(:disabled) {
-      background: #e8e8e8;
+      background: var(--color-surface-hover-strong);
     }
 
     .btn-sm {
@@ -215,28 +222,28 @@ import { UploadResponse } from '../../models/api.models';
     .result pre {
       margin: 0.5rem 0;
       padding: 0.75rem;
-      background: rgba(0, 0, 0, 0.05);
+      background: rgba(128, 128, 128, 0.1);
       border-radius: 4px;
       overflow-x: auto;
       font-size: 0.8125rem;
     }
 
     .result.success {
-      background: #d4edda;
-      border: 1px solid #c3e6cb;
-      color: #155724;
+      background: var(--color-success-bg);
+      border: 1px solid var(--color-success-border);
+      color: var(--color-success-text);
     }
 
     .result.error {
-      background: #f8d7da;
-      border: 1px solid #f5c6cb;
-      color: #721c24;
+      background: var(--color-error-bg);
+      border: 1px solid var(--color-error-border);
+      color: var(--color-error-text);
     }
 
     .result.info {
-      background: #e7f3ff;
-      border: 1px solid #b8daff;
-      color: #004085;
+      background: var(--color-info-bg);
+      border: 1px solid var(--color-info-border);
+      color: var(--color-info-text);
     }
   `]
 })
