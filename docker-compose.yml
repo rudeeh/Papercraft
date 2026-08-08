@@ -118,10 +118,22 @@ services:
       minio:
         condition: service_started
 
+  # The Angular app is the mature UI (upload, ask, citation explorer).
   frontend:
     build: ./frontend-angular
     ports:
       - "8080:80"
+    depends_on:
+      - api
+
+  # The Next.js app is the spec's target frontend, currently covering
+  # ingest / ask / review-queue. Both are served so neither blocks the other.
+  web:
+    build: ./web
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
     depends_on:
       - api
 
