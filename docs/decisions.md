@@ -184,3 +184,181 @@ Angular frontend still holds 8080; in-network services use
 mocked tests included) plus a live smoke test against a real Weaviate
 1.28.4 (store, filtered search, hybrid graph-filter search, paper
 aggregation, idempotent re-ingestion, dim-recreate).
+
+---
+
+## ADR: PostgreSQL is an *optional* datastore, like Neo4j and Weaviate
+
+**Decision (2026-08-09):** Add PostgreSQL for users, ingestion jobs,
+extraction drafts, attestations and the audit log — but build the engine
+lazily and let `init_db()` return `False` rather than raise when it is
+unreachable.
+
+**Why:** Every other datastore in this codebase already degrades rather
+than fails: the worker skips graph steps when Neo4j is down and vector
+steps when Weaviate is down, and the ingestion path still completes.
+Making the relational store the one hard dependency would mean a Postgres
+restart takes down `/upload` and `/chat`, which have nothing to do with
+it. Instead only the auth and curation routes 503.
+
+**Cost:** Two different "database is down" behaviours to keep in mind, and
+`get_session` has to translate a driver error into a 503 at the route
+boundary rather than letting it become a 500.
+
+---
+
+## ADR: `create_all` rather than Alembic
+
+**Decision (2026-08-09):** Manage the relational schema with
+`Base.metadata.create_all` at startup. No migration tool.
+
+**Why:** These tables are append-mostly bookkeeping with no production
+data to migrate. Alembic's value is a reviewed, reversible history of
+schema change against data you cannot lose; buying that before there is
+any such data is ceremony. The models are also deliberately written in the
+portable SQLAlchemy subset (String PKs, `JSON` not `JSONB`, no
+server-side defaults) so the test suite can run them on in-memory SQLite,
+and drift into PostgreSQL-only territory fails a test rather than a
+deploy.
+
+**When this must change:** the first time a column is dropped or retyped
+against a database anyone cares about. `create_all` never alters an
+existing table, so at that point it silently does nothing and the app
+breaks against a stale schema.
+
+---
+
+## ADR: PBKDF2 from the standard library, not bcrypt or argon2
+
+**Decision (2026-08-09):** Hash passwords with PBKDF2-HMAC-SHA256 at
+390,000 iterations (`app/core/security.py`), and sign access tokens with
+a hand-rolled HS256 JWT rather than adding PyJWT.
+
+**Why:** bcrypt and argon2 are stronger per unit of CPU, and in a
+green-field service one of them would be the default answer. Here they
+arrive as C extensions, and this project's slim `python:3.11` image has a
+history of exactly that class of build failure — the passlib 1.7.4 +
+bcrypt 4.x pairing is a widely-hit breakage in its own right. PBKDF2 is an
+accepted choice (NIST SP 800-63B), has zero install surface, and the
+stored format `pbkdf2_sha256$<iterations>$<salt>$<hash>` carries its own
+parameters, so raising the cost later is a lazy per-user rehash on next
+login (`needs_rehash`), not a migration.
+
+**On the hand-rolled JWT:** the entire surface needed is sign and verify
+over a compact claims dict. The one thing that must not be got wrong is
+accepting whatever `alg` the token asks for — the classic `"alg": "none"`
+forgery — so the algorithm is pinned before the signature is checked, the
+comparison is constant-time, and expiry is enforced. All three have tests.
+
+**Cost:** Two pieces of security-relevant code we own instead of
+delegate. If the auth surface grows (refresh tokens, asymmetric keys,
+OAuth2 flows against ORCID) this should be replaced with a library rather
+than extended.
+
+---
+
+## ADR: Auth is optional by default (`AUTH_REQUIRED=false`)
+
+**Decision (2026-08-09):** Unauthenticated callers of the curation routes
+resolve to a single shared anonymous curator instead of being rejected.
+Setting `AUTH_REQUIRED=true` demands a bearer token everywhere, with no
+code change.
+
+**Why:** README design principle 4 is "Single-Player Mode First" — the
+graph has to be useful to one researcher building a literature review
+before it is useful as a network. Forcing a signup before that person can
+attest their own extraction is friction against the project's own stated
+sequencing.
+
+**The one thing that does not fall back:** a *bad* token is a 401 even in
+single-player mode. Only a *missing* credential falls back — a wrong one
+is an error, and silently downgrading it to anonymous would hide a broken
+client.
+
+**Cost:** Attestations attributed to "anonymous" carry no reputation
+signal and cannot be told apart from each other, so the unique
+(draft, user) constraint means anonymous mode is effectively one vote per
+draft. That is the correct conservative behaviour, but it does mean the
+promote threshold is unreachable anonymously without explicit promotion.
+
+---
+
+## ADR: A title match is labelled, not trusted
+
+**Decision (2026-08-09):** `OpenAlexClient.enrich()` returns
+`match_method` (`doi` / `arxiv` / `title`) and `match_confidence`
+alongside the metadata.
+
+**Why:** Resolution falls back to fuzzy title search when no identifier
+was extracted, and fuzzy title matching has a failure mode no threshold
+fixes: character similarity cannot see negation. "Attention Is All You
+Need" and "Attention Is Not All You Need" score 0.93, and the gap only
+narrows as titles get longer, so any threshold loose enough to tolerate
+OCR damage will also accept the wrong paper. Rather than pretend a
+threshold solves it, the uncertainty is reported and there is a test
+(`test_negation_is_a_documented_blind_spot`) pinning the limitation open
+so it cannot be quietly forgotten.
+
+**Cost:** Consumers have to decide what to do with a weak match. Today the
+pipeline treats all matches alike; the field exists so that can change
+without another round of plumbing.
+
+---
+
+## ADR: Confidence routing withholds nothing it cannot queue
+
+**Decision (2026-08-09):** When the ingestion pipeline has no draft sink
+(no PostgreSQL), or the queue write fails, review-needed extractions are
+written into the graph instead of being held back.
+
+**Why:** The point of routing is to keep uncertain extractions out of the
+canonical graph *until a human looks at them*. That trade only makes sense
+if there is somewhere for them to wait. With no queue, "withhold" does not
+mean "defer", it means "delete" — the extraction is gone and no one will
+ever review it. Inserting it is the lesser harm and is exactly the
+pre-routing behaviour, so a database outage costs review, never data. Both
+paths are tested.
+
+**Related:** heuristic extractions score 0.90, above the 0.85 auto-insert
+threshold, so a heuristic-only deployment's graph is unaffected by the
+router's introduction. A deterministic regex match against a curated term
+list is reproducible and a reviewer can read the rule that fired — a
+different kind of claim from a model's self-reported score.
+
+---
+
+## ADR: Promotion does not block on Neo4j
+
+**Decision (2026-08-09):** `curation.promote_draft()` marks a draft
+promoted even when the graph write fails, and records
+`graph_written: false` in the audit log.
+`curation.pending_graph_writes()` derives the replay set from those rows.
+
+**Why:** A curator's review is scarce and irreplaceable; a graph write is
+cheap and repeatable. Refusing the promotion because Neo4j happened to be
+restarting throws away the expensive half to protect the cheap half.
+Deriving the replay set from the audit log rather than a `needs_write`
+flag means the thing driving the retry is the record of what actually
+happened, not a second piece of state that can disagree with it.
+
+**Cost:** A promoted draft is briefly true in PostgreSQL and not yet true
+in Neo4j. Nothing currently runs the replay automatically — it is a
+function, not a scheduled job.
+
+---
+
+## ADR: Two frontends, for now
+
+**Decision (2026-08-09):** Add `web/` (Next.js 14, the spec's stated
+frontend) without removing `frontend-angular/`. Both are built and served
+by docker-compose, on 3000 and 8080.
+
+**Why:** The Angular app is the mature UI — upload, ask, citation
+explorer, dark mode — and works. The Next.js app is three pages old. The
+spec calls for Next.js, so the migration should happen, but breaking a
+working UI to start one is a regression dressed as progress.
+
+**Cost:** Two clients against one API, and a period where a feature has to
+be decided into one or the other. This should end with the Angular app
+being deleted once `web/` covers what it covers — not with both being
+maintained indefinitely.

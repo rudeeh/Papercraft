@@ -1,24 +1,28 @@
-# Architecture (Phase 19.1)
+# Architecture
 
-This document describes the system as it stands after Phases 1-18: the
-original vector-RAG platform (kept intact) plus the GraphRAG layer built
-on top of it. For the module-by-module audit of what existed before
-GraphRAG work started, see [`repo_audit.md`](./repo_audit.md).
+The system as it stands: the original vector-RAG platform (kept intact),
+the GraphRAG layer built on top of it, and the Papercraft layer on top of
+that -- OpenAlex enrichment, LLM extraction with confidence routing, and
+the human curation loop. For the module-by-module audit of what existed
+before GraphRAG work started, see [`repo_audit.md`](./repo_audit.md).
 
 ## 1. System overview
 
 Two retrieval paths exist side by side:
 
 - **Legacy vector-RAG** (`POST /api/v1/chat`) -- unchanged. Chunks a PDF by
-  words, embeds with `sentence-transformers`, stores in Qdrant under the
-  `documents` collection, and answers by stuffing the top-k chunks into an
+  words, embeds with `sentence-transformers`, stores in Weaviate under the
+  `Documents` collection, and answers by stuffing the top-k chunks into an
   LLM prompt. No citations, no entities, no graph.
 - **GraphRAG** (`POST /api/v1/graph-query`) -- everything built in Phases
   2-18. Every ingested paper gets a knowledge-graph representation in
   Neo4j (methods, datasets, tasks, metrics, claims, experiments, citations)
-  *and* graph-node-linked vector embeddings in Qdrant, and queries are
+  *and* graph-node-linked vector embeddings in Weaviate, and queries are
   routed to graph traversal, vector search, or both depending on what
   they're asking.
+- **Curation** (`/api/v1/curation/*`) -- extractions the confidence router
+  would not wave through wait in a PostgreSQL-backed queue for human
+  attestation, and only reach Neo4j once promoted.
 
 Both paths share the same upload endpoint, Celery worker, and PDF -- the
 GraphRAG pipeline runs as additional (non-critical) steps in the same
@@ -57,16 +61,40 @@ PDF upload (POST /api/v1/upload)
                                 carries node_type/node_name/source_text)
            9. Embedding        app/embeddings/embedder.py
               -- local (sentence-transformers) | openai | stub backend
-          10. Qdrant store     app/storage/{qdrant_client,vector_repository}.py
-              -- re-ingestion-safe (deletes the paper's old vectors first)
+          10. Weaviate store   app/storage/{weaviate_client,vector_repository}.py
+              -- re-ingestion-safe (deterministic uuid5 chunk IDs, so a
+                 re-ingest overwrites rather than duplicates)
+```
+
+Interleaved with the above are four Papercraft steps:
+
+```
+   2b. ENRICHMENT          app/services/openalex.py
+       -- resolves the paper by DOI -> arXiv ID -> fuzzy title, and
+          returns canonical title/authors/year/venue/DOI plus a
+          match_method saying how certain that resolution was. Runs
+          before graph build so the Paper node carries it.
+   5b. LLM_EXTRACTION      app/graph/llm_extractor.py
+       -- two-stage (entities, then relations given those entities).
+          SKIPPED unless EXTRACTION_PROVIDER is llm|hybrid. Drops any
+          extraction outside the ontology or quoting evidence not
+          present in the source.
+   5c. CONFIDENCE_ROUTING  app/graph/confidence_router.py
+       -- merges the heuristic and LLM passes, scores each item, and
+          splits into auto-insert / draft / manual / discarded.
+   5d. DRAFT_QUEUE         app/services/curation.py
+       -- persists the review-needed items. SKIPPED when there is no
+          PostgreSQL, in which case those items are inserted into the
+          graph rather than dropped (see decisions.md).
 ```
 
 Steps 3-10 are all non-critical: each is wrapped in try/except by
 `PaperIngestionPipeline._run_step`, so a single failing step is recorded
-in `PipelineResult.steps` and the pipeline continues. Neo4j and Qdrant are
-both optional at the pipeline level -- if a connection isn't available
-(`app.worker.tasks._create_neo4j_client` / `_create_vector_repo` return
-`None`), the corresponding steps are marked `SKIPPED`, not `ERROR`.
+in `PipelineResult.steps` and the pipeline continues. Neo4j, Weaviate,
+PostgreSQL and OpenAlex are all optional at the pipeline level -- if a
+connection isn't available (the `_create_*` helpers in
+`app.worker.tasks` return `None`), the corresponding steps are marked
+`SKIPPED`, not `ERROR`.
 
 ## 3. Query data flow (GraphRAG)
 
@@ -78,7 +106,7 @@ POST /api/v1/graph-query {query, project_id?, top_k?}
               -> EXPLANATION | COMPARISON | EVOLUTION | CITATION | SURVEY | ENTITY_LOOKUP
          2. Route per query type (see table below):
               GraphRetriever      app/retrieval/graph_retriever.py    (Neo4j)
-              VectorRetriever     app/retrieval/vector_retriever.py   (Qdrant)
+              VectorRetriever     app/retrieval/vector_retriever.py   (Weaviate)
               CitationExpander    app/retrieval/citation_expander.py  (Neo4j, EVOLUTION only)
     -> ContextBuilder.build(retrieval_result)          app/llm/context_builder.py
          -- renders graph facts / text evidence / citation paths / source
@@ -139,11 +167,12 @@ Ontology defined in `app/graph/ontology.py`:
   paper is later ingested, `GraphRepository.resolve_citation_stub`
   re-wires incoming `CITES` edges to it and deletes the stub.
 
-### Qdrant (vectors)
+### Weaviate (vectors)
 
-Single collection (`QDRANT_COLLECTION_NAME`, default `documents`), managed
-by `QdrantClientWrapper` + `VectorRepository`
-(`app/storage/{qdrant_client,vector_repository}.py`). Each point's payload:
+Single collection (`WEAVIATE_COLLECTION_NAME`, default `Documents`),
+managed by `WeaviateClientWrapper` + `VectorRepository`
+(`app/storage/{weaviate_client,vector_repository}.py`). Each object's
+payload:
 
 ```json
 {
@@ -161,9 +190,30 @@ by `QdrantClientWrapper` + `VectorRepository`
 `node_type` / `node_name` link every vector directly back to the graph
 node it was derived from, which is what lets `VectorRetriever.retrieve()`
 filter by node type and lets citation expansion restrict vector search to
-a specific set of `paper_id`s. Re-ingesting a paper deletes its existing
-points first (`store_paper_chunks` / `store_embedded_chunks`), so
-re-ingestion is idempotent the same way Neo4j writes are.
+a specific set of `paper_id`s. Chunk IDs are deterministic uuid5 values,
+so re-ingesting a paper overwrites its objects rather than duplicating
+them -- idempotent the same way Neo4j writes are.
+
+### PostgreSQL (everything *about* the graph, rather than in it)
+
+`app/db/models.py`, created at startup by `init_db()`:
+
+| Table | Holds |
+|---|---|
+| `users` | Curators, their reputation, and the shared anonymous account |
+| `ingestion_jobs` | A durable record of each PDF's run, surviving a Redis flush |
+| `extraction_drafts` | Extractions awaiting review, payload stored verbatim so promotion needs no re-extraction |
+| `attestations` | One vote per (draft, curator) -- the unique constraint is what makes the score trustworthy |
+| `audit_log` | Append-only: who changed what, `actor_id` NULL meaning the pipeline itself |
+
+The engine is built lazily and `init_db()` reports failure rather than
+raising, so PostgreSQL is optional the same way Neo4j and Weaviate are.
+
+### MinIO / S3 (PDFs)
+
+`app/storage/object_store.py`, off by default (`OBJECT_STORE_ENABLED`).
+Makes uploads durable across container rebuilds and shareable between api
+and worker replicas, which a bind-mounted volume only appears to do.
 
 ## 5. Component map
 
@@ -176,7 +226,7 @@ re-ingestion is idempotent the same way Neo4j writes are.
 | 6 | Relation extraction | `app/graph/relation_extractor.py` |
 | 7 | Paper graph builder | `app/graph/paper_graph_builder.py` |
 | 8 | Neo4j storage | `app/storage/{neo4j_client,graph_repository}.py` |
-| 9 | Vector indexing | `app/embeddings/embedder.py`, `app/storage/{qdrant_client,vector_repository}.py` |
+| 9 | Vector indexing | `app/embeddings/embedder.py`, `app/storage/{weaviate_client,vector_repository}.py` |
 | 10 | Ingestion pipeline | `app/pipeline/paper_ingestion_pipeline.py`, `app/worker/tasks.py` |
 | 11 | Graph retrieval | `app/retrieval/graph_retriever.py` |
 | 12 | Vector retrieval | `app/retrieval/vector_retriever.py` |
@@ -184,15 +234,39 @@ re-ingestion is idempotent the same way Neo4j writes are.
 | 14 | Citation expansion | `app/retrieval/citation_expander.py` |
 | 15 | Answer generation | `app/llm/{context_builder,answer_generator}.py` |
 | 16 | API integration | `app/api/graph_routes.py` |
-| 17 | Frontend integration | `frontend-angular/src/app/components/ask/` |
+| 17 | Frontend integration | `frontend-angular/src/app/components/ask/`, `web/app/` |
 | 18 | Evaluation | `evaluation/{questions.json,run_eval.py}` |
+| -- | Metadata enrichment | `app/services/openalex.py` |
+| -- | LLM extraction | `app/graph/llm_extractor.py` |
+| -- | Confidence routing | `app/graph/confidence_router.py` |
+| -- | Curation engine | `app/services/curation.py`, `app/api/curation_routes.py` |
+| -- | Auth | `app/core/security.py`, `app/api/{deps,auth_routes}.py` |
+| -- | Relational storage | `app/db/{base,models}.py` |
+| -- | Object storage | `app/storage/object_store.py` |
 
-## 6. Design principle carried through every phase
+## 6. Extraction: deterministic by default, LLM by opt-in
 
-Entity/relation extraction, query classification, and the citation
-mention-parsing in Phase 4 are all **deterministic regex/keyword
-heuristics**, not an LLM or a heavy NLP model. This was a deliberate choice
-(documented further in [`decisions.md`](./decisions.md)) so the graph
-pipeline works without an extra model dependency and stays fast and
-testable; it trades off recall on entities/relations phrased in ways the
-patterns don't cover.
+Entity/relation extraction, query classification, and citation
+mention-parsing are all **deterministic regex/keyword heuristics** by
+default -- no LLM, no heavy NLP model. The graph pipeline therefore works
+with no extra model dependency, stays fast, and is fully testable. It
+trades off recall on entities and relations phrased in ways the patterns
+don't cover.
+
+`EXTRACTION_PROVIDER=llm|hybrid` adds the two-stage LLM pass to recover
+that recall. What keeps it safe is that its output is not trusted equally:
+
+- An extraction outside the ontology is **dropped**, never coerced into
+  the nearest legal type.
+- An extraction whose quoted evidence does not appear in the source is
+  **dropped** -- the cheapest available hallucination check.
+- What survives is *scored*, not inserted. Only extractions at or above
+  `CONFIDENCE_AUTO_INSERT` enter the graph unreviewed; the rest wait for a
+  human in the curation queue.
+- Independent agreement between the two passes is the strongest signal
+  available without a human, and is what lifts a medium-confidence model
+  extraction over the auto-insert line.
+
+Heuristic extractions score 0.90 -- above the 0.85 default -- so a
+heuristic-only deployment's graph is unaffected by any of this machinery
+existing. See [`decisions.md`](./decisions.md) for why.

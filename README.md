@@ -5,17 +5,76 @@ reason across the entire research ecosystem instead of reading isolated PDFs.
 > 
 ## Table of Contents
 
-1. [Vision & Philosophy](#vision--philosophy)
-2. [System Architecture](#system-architecture)
-3. [Core Ontology](#core-ontology)
-4. [Phase-by-Phase Implementation](#phase-by-phase-implementation)
-5. [Technology Stack](#technology-stack)
-6. [API Specification](#api-specification)
-7. [Data Flow](#data-flow)
-8. [Development Setup](#development-setup)
-9. [Contributing](#contributing)
-10. [Roadmap](#roadmap)
-11. [License](#license)
+1. [Implementation Status](#implementation-status)
+2. [Vision & Philosophy](#vision--philosophy)
+3. [System Architecture](#system-architecture)
+4. [Core Ontology](#core-ontology)
+5. [Phase-by-Phase Implementation](#phase-by-phase-implementation)
+6. [Technology Stack](#technology-stack)
+7. [API Specification](#api-specification)
+8. [Data Flow](#data-flow)
+9. [Development Setup](#development-setup)
+10. [Contributing](#contributing)
+11. [Roadmap](#roadmap)
+12. [License](#license)
+
+---
+
+## Implementation Status
+
+**This README is the specification.** Most of it describes where Papercraft
+is going; this section describes where it actually is, so a reader can tell
+the two apart. Anything not listed as built is a plan.
+
+### Built and tested
+
+| Area | State |
+|---|---|
+| Ingestion pipeline | PDF → OCR → parse → citations → entities → relations → graph build → Neo4j → chunk → embed → Weaviate, every step non-critical and independently recoverable |
+| Graph ontology | 10 node types, 22 edge types, `VALID_EDGES` enforced on every write |
+| Metadata enrichment | OpenAlex, resolved by DOI → arXiv ID → fuzzy title, with the match method reported |
+| Extraction | Deterministic heuristics by default; opt-in two-stage LLM pass (`EXTRACTION_PROVIDER=llm\|hybrid`) |
+| Confidence routing | auto-insert / draft / manual / discarded, with independent agreement between passes as the strongest signal |
+| Curation | Draft queue, attestation voting, promotion into the graph, reputation, append-only audit log |
+| Retrieval | Query classifier → graph / vector / hybrid, plus citation expansion |
+| Answer generation | Grounded answers with sources and the graph facts used |
+| Auth | Register / login / me, JWT bearer, optional by default (single-player mode) |
+| Storage | Neo4j, Weaviate, PostgreSQL, Redis, MinIO — every one of them optional at the pipeline level |
+| API | REST under `/api/v1` (see [API Specification](#api-specification)) |
+| Frontends | Angular (mature: upload, ask, citation explorer) and Next.js (ingest, ask, review queue) |
+| Evaluation | `evaluation/run_eval.py` compares graph-only / vector-only / hybrid over `questions.json` |
+| Tests | **577 unit tests, all passing.** No Docker services required — Neo4j, Weaviate, OpenAlex and the LLM are mocked; PostgreSQL is substituted by in-memory SQLite |
+
+### Specified but not built
+
+- **GraphQL API** (Strawberry) — REST only today
+- **arXiv / PubMed / GitHub / Hugging Face ingestion** — upload only; no
+  `POST /ingest/arxiv`, no daily sync
+- **Marker / Nougat / GROBID parsing** — PyMuPDF with a doctr OCR fallback
+- **SPECTER2 embeddings** — `all-MiniLM-L6-v2` by default
+- **ORCID sign-in** — the `orcid` column exists; no identity provider is contacted
+- **Export formats** (BibTeX, CSV, RDF), **Zotero plugin**, **Chrome extension**
+- **Fine-tuned extraction models**, **table and equation extraction**
+- **Kubernetes, Prometheus/Grafana, Loki**
+
+### Known limitations
+
+- **Fuzzy title matching cannot detect negation.** "Attention Is All You
+  Need" and "Attention Is Not All You Need" score 0.93 similarity. The
+  enriched record therefore carries `match_method` and `match_confidence`
+  rather than presenting a guess as an identity; there is a test pinning
+  this open.
+- **Promotion does not block on Neo4j.** A draft promoted while the graph
+  is unreachable is marked promoted anyway and the replay set is derivable
+  from the audit log — but nothing runs that replay automatically yet.
+- **Schema management is `create_all`, not Alembic.** Fine while these
+  tables hold no data anyone would miss; it silently does nothing the first
+  time a column needs altering.
+- **Two frontends.** The Angular app is the mature one. `web/` is the
+  spec's target and should eventually replace it.
+
+Every one of these choices is written up with its cost in
+[`docs/decisions.md`](./docs/decisions.md).
 
 ---
 
@@ -414,7 +473,39 @@ Every edge in the graph carries provenance:
 
 ## API Specification
 
-### REST Endpoints
+### Implemented today
+
+Everything below this table is the target design; this is what the running
+service actually serves. Interactive docs at `/docs`.
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/api/v1/health` | Liveness |
+| `GET` | `/api/v1/llm-status` | Whether the server has an OpenRouter key |
+| `POST` | `/api/v1/upload` | Upload a PDF; returns `doc_id` + `task_id` |
+| `GET` | `/api/v1/status/{task_id}` | Per-step ingestion progress; 404 for an unknown ID |
+| `POST` | `/api/v1/chat` | Legacy vector-RAG question answering |
+| `POST` | `/api/v1/graph-query` | GraphRAG: answer + sources + retrieval trace |
+| `GET` | `/api/v1/citation-graph` | The whole cross-paper citation network |
+| `POST` | `/api/v1/auth/register` | Create a curator account, returns a bearer token |
+| `POST` | `/api/v1/auth/login` | Exchange credentials for a bearer token |
+| `GET` | `/api/v1/auth/me` | The acting user (anonymous when unauthenticated) |
+| `GET` | `/api/v1/curation/drafts` | The review queue, lowest confidence first |
+| `GET` | `/api/v1/curation/drafts/{id}` | One draft with its attestations |
+| `POST` | `/api/v1/curation/drafts/{id}/attest` | Vote `+1` / `-1` |
+| `POST` | `/api/v1/curation/drafts/{id}/promote` | Accept, and write into the graph |
+| `POST` | `/api/v1/curation/drafts/{id}/reject` | Discard |
+| `GET` | `/api/v1/curation/stats` | Queue counts by status |
+| `GET` | `/api/v1/curation/leaderboard` | Curators by reputation |
+
+Status codes carry meaning worth handling: `401` from `/chat` or
+`/graph-query` means no OpenRouter key is available, `503` means a
+datastore that request needed is unreachable, `409` means a draft is
+already resolved, and `422` on a curation filter means the value was not a
+recognised enum — deliberately not an empty list, which would read as
+"the queue is clear".
+
+### Target REST Endpoints
 
 #### Ingestion
 ```http
@@ -624,170 +715,114 @@ User query (NL or GraphQL)
 
 ### Quick Start
 
+Everything runs from one compose file:
+
 ```bash
-# 1. Clone the repository
-git clone https://github.com/your-org/research-os.git
-cd research-os
+# 1. Clone
+git clone https://github.com/rudeeh/Papercraft
+cd Papercraft
 
-# 2. Start infrastructure services
-docker-compose -f docker-compose.infra.yml up -d
-# This starts: Neo4j, PostgreSQL, Redis, MinIO, Weaviate
+# 2. Configure. The defaults work; the one worth setting is an
+#    OpenRouter key, without which /graph-query answers 401 unless the
+#    caller supplies their own.
+cp .env.example .env
 
-# 3. Install backend dependencies
-cd backend
-python -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
+# 3. Bring up the stack. The first build is slow -- torch and doctr are
+#    large -- and Neo4j's healthcheck gates the api and worker, so allow
+#    ~30s after the build before the API answers.
+docker compose up -d --build
 
-# 4. Run database migrations
-alembic upgrade head
+# 4. Check it
+curl http://localhost:8000/api/v1/health     # {"status":"ok"}
 
-# 5. Start the API
-uvicorn app.main:app --reload --port 8000
+# 5. Ingest a paper
+./scripts/load_small_pdf.sh                  # or: ./scripts/load_small_pdf.sh path/to/paper.pdf
 
-# 6. Install frontend dependencies (new terminal)
-cd ../web
-npm install
-
-# 7. Start the web app
-npm run dev
-
-# 8. Open http://localhost:3000
+# 6. Ask it something
+curl -s -X POST http://localhost:8000/api/v1/graph-query \
+  -H 'Content-Type: application/json' \
+  -d '{"query": "What methods does this paper use?"}'
 ```
+
+| URL | What |
+|---|---|
+| http://localhost:3000 | Next.js app — ingest, ask, review queue |
+| http://localhost:8080 | Angular app — upload, ask, citation explorer |
+| http://localhost:8000/docs | Interactive API docs |
+| http://localhost:7474 | Neo4j browser (`neo4j` / `password`) |
+| http://localhost:9001 | MinIO console (`minioadmin` / `minioadmin`) |
+
+Running the backend outside Docker, running the tests, and the evaluation
+harness are all covered in [`docs/setup.md`](./docs/setup.md).
 
 ### Environment Variables
 
-Create `.env` from `.env.example`:
+`.env.example` is the authoritative list and ships with working defaults
+for the compose stack. The ones worth knowing:
 
 ```bash
-# Database
-NEO4J_URI=bolt://localhost:7687
-NEO4J_USER=neo4j
-NEO4J_PASSWORD=researchos
+# LLM -- without a key, /chat and /graph-query 401 unless the request
+# carries its own (the frontends offer a field for it).
+OPENROUTER_API_KEY=sk-or-v1-...
 
-POSTGRES_URI=postgresql://researchos:researchos@localhost:5432/researchos
+# Extraction: heuristic (default, no LLM cost) | llm | hybrid
+EXTRACTION_PROVIDER=heuristic
+CONFIDENCE_AUTO_INSERT=0.85   # at or above this, straight into the graph
+CONFIDENCE_DRAFT=0.50         # at or above this, queued for a human
 
-REDIS_URI=redis://localhost:6379/0
+# Auth. false = single-player mode: curate without signing up.
+AUTH_REQUIRED=false
+SECRET_KEY=dev-secret-change-me   # signs every token -- change it
 
-# Storage
-MINIO_ENDPOINT=localhost:9000
-MINIO_ACCESS_KEY=minioadmin
-MINIO_SECRET_KEY=minioadmin
-MINIO_BUCKET_PDFS=researchos-pdfs
+# Enrichment. An address here joins OpenAlex's polite pool.
+OPENALEX_ENABLED=true
+OPENALEX_MAILTO=
 
-# AI Services
-OPENAI_API_KEY=sk-...
-OPENALEX_API_URL=https://api.openalex.org
-
-# Vector DB
-WEAVIATE_URL=http://localhost:8080
-
-# App
-SECRET_KEY=your-secret-key
-DEBUG=true
+# Object storage is off by default; uploads live in UPLOAD_DIR.
+OBJECT_STORE_ENABLED=false
 ```
+
+See [`docs/setup.md`](./docs/setup.md) for the full table.
 
 ### Project Structure
 
 ```
-research-os/
-├── .github/
-│   └── workflows/
-│       ├── ci.yml
-│       └── release.yml
-├── backend/
-│   ├── app/
-│   │   ├── __init__.py
-│   │   ├── main.py                 # FastAPI entry point
-│   │   ├── api/
-│   │   │   ├── v1/
-│   │   │   │   ├── ingest.py
-│   │   │   │   ├── documents.py
-│   │   │   │   ├── search.py
-│   │   │   │   └── graphql.py
-│   │   │   └── deps.py
-│   │   ├── core/
-│   │   │   ├── config.py
-│   │   │   ├── security.py
-│   │   │   └── logging.py
-│   │   ├── models/                 # SQLAlchemy models
-│   │   ├── services/
-│   │   │   ├── parser/
-│   │   │   │   ├── marker_client.py
-│   │   │   │   └── openalex_client.py
-│   │   │   ├── extraction/
-│   │   │   │   ├── entity_extractor.py
-│   │   │   │   ├── relation_extractor.py
-│   │   │   │   └── confidence_scorer.py
-│   │   │   ├── graph/
-│   │   │   │   ├── neo4j_client.py
-│   │   │   │   └── schema.py
-│   │   │   ├── search/
-│   │   │   │   ├── vector_search.py
-│   │   │   │   └── hybrid_ranker.py
-│   │   │   └── curation/
-│   │   │       ├── attestation.py
-│   │   │       └── reputation.py
-│   │   └── workers/
-│   │       └── celery_app.py
-│   ├── alembic/                    # Database migrations
-│   ├── tests/
-│   ├── Dockerfile
-│   ├── requirements.txt
-│   └── pyproject.toml
-├── web/
-│   ├── app/
-│   │   ├── (routes)/
-│   │   │   ├── page.tsx            # Home / search
-│   │   │   ├── paper/
-│   │   │   │   └── [id]/
-│   │   │   │       └── page.tsx
-│   │   │   ├── explorer/
-│   │   │   │   └── page.tsx
-│   │   │   └── curate/
-│   │   │       └── page.tsx
-│   │   ├── components/
-│   │   │   ├── graph/
-│   │   │   │   ├── ForceGraph.tsx
-│   │   │   │   ├── MethodTree.tsx
-│   │   │   │   └── ContradictionView.tsx
-│   │   │   ├── pdf/
-│   │   │   │   ├── PDFViewer.tsx
-│   │   │   │   └── TextHighlighter.tsx
-│   │   │   ├── search/
-│   │   │   │   ├── SearchBar.tsx
-│   │   │   │   └── FilterPanel.tsx
-│   │   │   └── curation/
-│   │   │       ├── ClaimEditor.tsx
-│   │   │       └── AttestationButton.tsx
-│   │   ├── lib/
-│   │   │   ├── api.ts
-│   │   │   ├── graphql-client.ts
-│   │   │   └── utils.ts
-│   │   └── types/
-│   │       └── index.ts
-│   ├── public/
-│   ├── Dockerfile
-│   ├── package.json
-│   └── next.config.js
-├── services/
-│   ├── marker/                     # Marker PDF parser service
-│   │   ├── Dockerfile
-│   │   ├── app.py
-│   │   └── requirements.txt
-│   └── weaviate/                   # Weaviate schema & config
-│       └── schema.json
-├── schemas/
-│   ├── document_v1.json            # Canonical Document Schema
-│   ├── graphql_schema.graphql
-│   └── ontology.cypher             # Neo4j schema definitions
+Papercraft/
+├── .github/workflows/ci.yml     # pytest, pip check, requirements resolve, Next build
+├── app/
+│   ├── api/                     # FastAPI routers
+│   │   ├── routes.py            #   upload / status / chat / health
+│   │   ├── graph_routes.py      #   graph-query / citation-graph
+│   │   ├── auth_routes.py       #   register / login / me
+│   │   ├── curation_routes.py   #   draft queue, attest, promote, reject
+│   │   └── deps.py              #   session + current-user resolution
+│   ├── citations/               # reference extraction and normalisation
+│   ├── core/                    # config, password hashing, tokens
+│   ├── db/                      # SQLAlchemy models + engine
+│   ├── embeddings/              # local | openai | stub embedders
+│   ├── graph/
+│   │   ├── ontology.py          #   node/edge types + validation
+│   │   ├── entity_extractor.py  #   deterministic pass
+│   │   ├── relation_extractor.py
+│   │   ├── llm_extractor.py     #   two-stage LLM pass (opt-in)
+│   │   ├── confidence_router.py #   auto-insert / draft / manual
+│   │   └── paper_graph_builder.py
+│   ├── llm/                     # context building, answer generation
+│   ├── paper/parser.py          # title / abstract / sections / references
+│   ├── pipeline/                # the ingestion orchestrator
+│   ├── retrieval/               # graph, vector, hybrid, citation expansion
+│   ├── services/                # ocr, embeddings, llm, openalex, curation
+│   ├── storage/                 # neo4j, weaviate, object store, repositories
+│   └── worker/                  # Celery app and tasks
+├── docs/                        # architecture, setup, decisions (ADRs), audit
+├── evaluation/                  # questions.json + run_eval.py
+├── frontend-angular/            # the mature UI
+├── web/                         # Next.js 14 app (ingest / ask / curate)
+├── scripts/                     # load_small_pdf.sh, health_check.sh, ...
+├── tests/                       # 577 unit tests
 ├── docker-compose.yml
-├── docker-compose.infra.yml
-├── Makefile
-├── README.md
-├── ROADMAP.md
-├── CONTRIBUTING.md
-└── LICENSE
+├── Dockerfile
+└── requirements.txt
 ```
 
 ---
