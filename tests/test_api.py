@@ -4,6 +4,16 @@ import pytest
 from httpx import AsyncClient, ASGITransport
 from app.api.main import app
 
+
+def _can_import(module_name: str) -> bool:
+    """True if `import module_name` succeeds. Used by skipif decorators
+    so tests that need optional deps skip gracefully in CI."""
+    try:
+        __import__(module_name)
+        return True
+    except ImportError:
+        return False
+
 @pytest.mark.asyncio
 async def test_health():
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
@@ -49,6 +59,10 @@ class TestChatEndpoint:
         )
 
     @pytest.mark.asyncio
+    @pytest.mark.skipif(
+        not _can_import("sentence_transformers"),
+        reason="app.services.embeddings imports sentence_transformers at module load; CI skips it to save ~2 GB torch download",
+    )
     async def test_passes_request_api_key_to_llm_client(self):
         get_model_patch, search_patch = self._patch_chat_deps()
         with get_model_patch, search_patch, \
@@ -65,6 +79,10 @@ class TestChatEndpoint:
         assert mock_llm.generate_response.call_args.kwargs["api_key"] == "sk-or-user-supplied"
 
     @pytest.mark.asyncio
+    @pytest.mark.skipif(
+        not _can_import("sentence_transformers"),
+        reason="app.services.embeddings imports sentence_transformers at module load; CI skips it to save ~2 GB torch download",
+    )
     async def test_no_api_key_available_returns_401(self):
         from app.services.llm import LLMNotConfiguredError
 
