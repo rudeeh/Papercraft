@@ -394,3 +394,54 @@ class TestComplexScenarios:
 
         assert paper_has_section.edge_type == "HAS_SECTION"
         assert section_contains_claim.edge_type == "CONTAINS_CLAIM"
+
+
+# ======================================================================
+# Enum integrity — catches accidental duplicate values at startup
+# ======================================================================
+
+
+class TestEdgeTypeEnumIntegrity:
+    """Sanity checks that the EdgeType enum has no duplicate values.
+
+    Python's Enum silently aliases members that share the same value:
+    the second member becomes invisible in ``list(EdgeType)`` and
+    ``EdgeType(value)`` returns the canonical member, not the alias.
+    This is a subtle bug source — code that references the aliased
+    member appears to work but points to the wrong semantic edge.
+    """
+
+    def test_no_duplicate_edge_type_values(self):
+        """No two EdgeType members should share the same ``.value``."""
+        members = list(EdgeType.__members__.values())
+        values = [m.value for m in members]
+        duplicates = sorted({v for v in values if values.count(v) > 1})
+        assert not duplicates, (
+            f"Duplicate EdgeType values found: {duplicates}. "
+            f"Python's Enum silently aliases members with the same value, "
+            f"so the aliased member is invisible in list(EdgeType) and "
+            f"EdgeType(value) returns the wrong member. Rename one of "
+            f"them to a unique value."
+        )
+
+    def test_every_enum_member_is_iterable(self):
+        """Every declared EdgeType name should appear in list(EdgeType).
+
+        If a member is silently aliased (same value as another), it
+        won't appear in ``list(EdgeType)`` — this test catches that
+        by comparing ``__members__`` (which includes aliases) against
+        ``list(EdgeType)`` (which excludes them).
+        """
+        declared_names = set(EdgeType.__members__.keys())
+        # Each name in __members__ should resolve to a unique member
+        # object. If two names resolve to the same object, one is an
+        # alias.
+        member_objects = [EdgeType.__members__[name] for name in declared_names]
+        unique_objects = set(id(obj) for obj in member_objects)
+        assert len(unique_objects) == len(declared_names), (
+            f"{len(declared_names) - len(unique_objects)} EdgeType member(s) "
+            f"are aliases of another member (same .value). This means "
+            f"they are invisible in list(EdgeType) and EdgeType(value) "
+            f"returns the wrong member. Check for duplicate values in "
+            f"the EdgeType enum."
+        )
