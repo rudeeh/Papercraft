@@ -12,3 +12,5 @@ tests/data/large.pdf
 .pytest_cache/
 .coverage
 htmlcov/
+# Local SQLite databases created by alembic tests / manual runs
+*.db

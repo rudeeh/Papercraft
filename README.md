@@ -67,9 +67,6 @@ the two apart. Anything not listed as built is a plan.
 - **Promotion does not block on Neo4j.** A draft promoted while the graph
   is unreachable is marked promoted anyway and the replay set is derivable
   from the audit log — but nothing runs that replay automatically yet.
-- **Schema management is `create_all`, not Alembic.** Fine while these
-  tables hold no data anyone would miss; it silently does nothing the first
-  time a column needs altering.
 - **Two frontends.** The Angular app is the mature one. `web/` is the
   spec's target and should eventually replace it.
 
