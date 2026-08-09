@@ -11,18 +11,6 @@ Covers:
 import pytest
 from unittest.mock import patch, MagicMock
 
-
-def _can_import(module_name: str) -> bool:
-    """True if `import module_name` succeeds. Used by skipif decorators
-    so tests that need optional deps (numpy, sentence_transformers) skip
-    gracefully in CI, where those deps are deliberately not installed."""
-    try:
-        __import__(module_name)
-        return True
-    except ImportError:
-        return False
-
-
 from app.embeddings.embedder import (
     StubEmbedder,
     SentenceTransformerEmbedder,
@@ -75,22 +63,26 @@ class TestStubEmbedder:
 # ======================================================================
 
 class TestSentenceTransformerEmbedder:
-    # numpy is a transitive dep of sentence-transformers. CI deliberately
-    # skips sentence-transformers to avoid pulling torch (~2 GB), so numpy
-    # isn't installed there. Skip the one test that needs numpy gracefully
-    # instead of failing — it still runs locally and in any environment
-    # where the full requirements.txt is installed.
-    @pytest.mark.skipif(
-        not _can_import("numpy"),
-        reason="numpy not installed (CI skips sentence-transformers to save ~2 GB torch download)",
-    )
     @patch("app.embeddings.embedder.SentenceTransformerEmbedder._ensure_model")
     def test_embed_returns_list_of_lists(self, mock_ensure):
         embedder = SentenceTransformerEmbedder(model_name="fake-model")
         embedder._model = MagicMock()
         embedder._dim = 384
-        import numpy as np
-        embedder._model.encode.return_value = np.array([[0.1] * 384, [0.2] * 384])
+
+        # The real SentenceTransformer.encode() returns a numpy ndarray
+        # whose elements expose .tolist(). Mock that contract directly
+        # so the test doesn't need numpy installed — CI deliberately
+        # skips sentence-transformers (which pulls torch ~2 GB) and we
+        # don't want this test to silently skip there.
+        def _make_vec(values):
+            m = MagicMock()
+            m.tolist.return_value = list(values)
+            return m
+
+        embedder._model.encode.return_value = [
+            _make_vec([0.1] * 384),
+            _make_vec([0.2] * 384),
+        ]
 
         result = embedder.embed(["a", "b"])
         assert len(result) == 2
