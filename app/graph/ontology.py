@@ -71,11 +71,9 @@ class EdgeType(str, Enum):
 
     # Metric relationships
     REPORTS_METRIC = "REPORTS_METRIC"  # Experiment -> Metric
-    MEASURED_BY = "MEASURED_BY"  # Result -> Metric
 
     # Authorship relationships
     WRITTEN_BY = "WRITTEN_BY"  # Paper -> Author
-    AUTHORED_BY = "AUTHORED_BY"  # Paper -> Author
 
     # Institutional relationships
     AFFILIATED_WITH = "AFFILIATED_WITH"  # Author -> Institution

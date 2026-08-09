@@ -15,6 +15,7 @@ from app.graph.ontology import (
     OntologyValidator,
     Node,
     Edge,
+    VALID_EDGES,
     get_all_node_types,
     get_all_edge_types,
     describe_ontology,
@@ -70,6 +71,32 @@ class TestEdgeTypeEnum:
         """Test accessing edge types by enum."""
         assert EdgeType.CITES.value == "CITES"
         assert EdgeType.USES_DATASET.value == "USES_DATASET"
+
+    def test_every_edge_type_appears_in_valid_edges(self):
+        """Regression: every EdgeType enum member must be a key (paired
+        with at least one NodeType) in VALID_EDGES. An enum member that
+        isn't in VALID_EDGES is dead code — any Edge() constructed with
+        it would fail validation with no test catching it.
+
+        This test was added after AUTHORED_BY and MEASURED_BY were
+        found declared but never usable. It pins the invariant so the
+        same drift can't silently come back.
+        """
+        edges_in_valid = {edge for (_, edge) in VALID_EDGES.keys()}
+        edges_in_enum = set(EdgeType)
+        dead = edges_in_enum - edges_in_valid
+        assert not dead, (
+            f"EdgeType members declared but never usable in VALID_EDGES: "
+            f"{sorted(e.value for e in dead)}. Either add them to "
+            f"VALID_EDGES with the right (source, target) pair, or "
+            f"delete them from the enum."
+        )
+
+    def test_edge_count_is_20(self):
+        """Pin the edge count. Was 22 before AUTHORED_BY and
+        MEASURED_BY were removed as dead code. If you add a new edge,
+        update this number AND add it to VALID_EDGES."""
+        assert len(list(EdgeType)) == 20
 
 
 class TestOntologyValidator:

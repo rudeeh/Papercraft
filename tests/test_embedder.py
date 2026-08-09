@@ -68,8 +68,21 @@ class TestSentenceTransformerEmbedder:
         embedder = SentenceTransformerEmbedder(model_name="fake-model")
         embedder._model = MagicMock()
         embedder._dim = 384
-        import numpy as np
-        embedder._model.encode.return_value = np.array([[0.1] * 384, [0.2] * 384])
+
+        # The real SentenceTransformer.encode() returns a numpy ndarray
+        # whose elements expose .tolist(). Mock that contract directly
+        # so the test doesn't need numpy installed — CI deliberately
+        # skips sentence-transformers (which pulls torch ~2 GB) and we
+        # don't want this test to silently skip there.
+        def _make_vec(values):
+            m = MagicMock()
+            m.tolist.return_value = list(values)
+            return m
+
+        embedder._model.encode.return_value = [
+            _make_vec([0.1] * 384),
+            _make_vec([0.2] * 384),
+        ]
 
         result = embedder.embed(["a", "b"])
         assert len(result) == 2

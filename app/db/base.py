@@ -8,10 +8,14 @@ unreachable -- and importing ``app.api.main`` must not fail just because
 PostgreSQL happens to be down. ``get_session`` surfaces an unreachable
 database as a 503 at the one route that needed it, not as a dead process.
 
-Schema management is ``Base.metadata.create_all`` rather than Alembic. The
-tables here are append-mostly bookkeeping (jobs, drafts, votes, audit rows)
-with no production data to migrate yet; see docs/decisions.md for when that
-should change.
+Schema management: ``init_db()`` still calls ``Base.metadata.create_all``
+so that a fresh deployment (or the test suite) gets a working schema
+without a migration step. For schema *changes* on an existing deployment,
+use Alembic (see ``alembic/`` directory and ``alembic upgrade head``).
+The baseline migration in ``alembic/versions/`` captures the same schema
+``create_all`` would produce, and ``tests/test_alembic.py`` pins the
+invariant that the two stay in sync — if you change a model without
+generating a corresponding migration, that test fails.
 """
 
 from __future__ import annotations
