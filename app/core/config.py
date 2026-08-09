@@ -48,6 +48,16 @@ class Settings(BaseSettings):
     # (README design principle 4) works without anyone signing up.
     AUTH_REQUIRED: bool = False
 
+    # CORS — origins allowed to make authenticated browser requests to the API.
+    # Default is the Next.js dev server. For production, set this to your
+    # exact frontend origin(s), e.g. "https://papercraft.example.com".
+    # Parse as a JSON array (pydantic-settings v2 idiom for list-typed env
+    # vars): CORS_ORIGINS='["http://localhost:3000","http://localhost:4200"]'
+    # The wildcard "*" is rejected when AUTH_REQUIRED is True, because
+    # allow_credentials=True + allow_origins=["*"] is a browser security
+    # antipattern that lets any site issue authenticated requests.
+    CORS_ORIGINS: list[str] = ["http://localhost:3000", "http://localhost:4200"]
+
     # OpenAlex metadata enrichment
     OPENALEX_ENABLED: bool = True
     OPENALEX_API_URL: str = "https://api.openalex.org"

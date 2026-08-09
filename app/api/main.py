@@ -74,10 +74,24 @@ app = FastAPI(
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-# Configure CORS
+# Configure CORS. Origins come from settings.CORS_ORIGINS (defaults to
+# the Next.js and Angular dev servers). When AUTH_REQUIRED is True we
+# additionally reject the wildcard "*" — allow_credentials=True +
+# allow_origins=["*"] is a browser security antipattern that lets any
+# site issue authenticated requests to the API. In single-player mode
+# (AUTH_REQUIRED=False) the wildcard is still permitted for parity with
+# the old behaviour, but a production deployment should always set
+# explicit origins.
+_cors_origins = list(settings.CORS_ORIGINS)
+if "*" in _cors_origins and settings.AUTH_REQUIRED:
+    raise RuntimeError(
+        "CORS_ORIGINS=['*'] is not allowed when AUTH_REQUIRED=True. "
+        "Set CORS_ORIGINS to an explicit list of frontend origin(s) "
+        "in your .env (e.g. ['https://papercraft.example.com'])."
+    )
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, replace with specific origins
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
