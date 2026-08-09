@@ -31,7 +31,7 @@ the two apart. Anything not listed as built is a plan.
 | Area | State |
 |---|---|
 | Ingestion pipeline | PDF → OCR → parse → citations → entities → relations → graph build → Neo4j → chunk → embed → Weaviate, every step non-critical and independently recoverable |
-| Graph ontology | 10 node types, 22 edge types, `VALID_EDGES` enforced on every write |
+| Graph ontology | 10 node types, 20 edge types, `VALID_EDGES` enforced on every write |
 | Metadata enrichment | OpenAlex, resolved by DOI → arXiv ID → fuzzy title, with the match method reported |
 | Extraction | Deterministic heuristics by default; opt-in two-stage LLM pass (`EXTRACTION_PROVIDER=llm\|hybrid`) |
 | Confidence routing | auto-insert / draft / manual / discarded, with independent agreement between passes as the strongest signal |
