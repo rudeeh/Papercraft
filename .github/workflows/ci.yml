@@ -30,7 +30,7 @@ jobs:
         # pinned set still resolves as a whole.
         run: |
           python -m pip install --upgrade pip
-          pip install $(grep -vE '^(sentence-transformers|python-doctr)' requirements.txt | grep -v '^#' | grep -v '^$' | tr '\n' ' ')
+          pip install numpy $(grep -vE '^(sentence-transformers|python-doctr)' requirements.txt | grep -v '^#' | grep -v '^$' | tr '\n' ' ')
 
       - name: Check the pinned dependency set is consistent
         run: pip check
