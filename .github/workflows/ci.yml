@@ -32,6 +32,11 @@ jobs:
           python -m pip install --upgrade pip
           pip install numpy $(grep -vE '^(sentence-transformers|python-doctr)' requirements.txt | grep -v '^#' | grep -v '^$' | tr '\n' ' ')
 
+      - name: Verify lightweight embedding imports
+        run: |
+          python -c "import numpy"
+          python -c "from app.services import embeddings; assert callable(embeddings.get_model)"
+
       - name: Check the pinned dependency set is consistent
         run: pip check
 
