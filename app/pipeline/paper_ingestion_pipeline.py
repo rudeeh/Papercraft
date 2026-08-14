@@ -162,17 +162,24 @@ class PaperIngestionPipeline:
         llm_extractor: Optional[Any] = None,
         draft_sink: Optional[Any] = None,
         router: Optional[ConfidenceRouter] = None,
+        s2_client: Optional[Any] = None,
     ) -> None:
         """
-        ``openalex_client``, ``llm_extractor`` and ``draft_sink`` are all
-        optional collaborators, injected rather than constructed here so a
-        test (or a deployment without PostgreSQL / an LLM key) gets the
-        pre-existing behaviour with no network calls.
+        ``openalex_client``, ``llm_extractor``, ``draft_sink`` and
+        ``s2_client`` are all optional collaborators, injected rather
+        than constructed here so a test (or a deployment without
+        PostgreSQL / an LLM key / an S2 API key) gets the pre-existing
+        behaviour with no network calls.
 
         ``draft_sink`` is called as ``sink(paper_id, routed_items)`` and is
         what makes confidence routing *load-bearing*: with nowhere to queue
         a low-confidence extraction, withholding it from the graph would
         just delete it, so without a sink everything is inserted as before.
+
+        ``s2_client`` enriches cited papers' stub nodes with Semantic
+        Scholar metadata (abstract, authors, venue, citation counts,
+        TLDR). Distinct from ``openalex_client`` which enriches the
+        uploaded paper itself.
         """
         self._neo4j_client = neo4j_client
         self._graph_repo: Optional[GraphRepository] = None
@@ -181,6 +188,7 @@ class PaperIngestionPipeline:
         self._llm_extractor = llm_extractor
         self._draft_sink = draft_sink
         self._router = router or ConfidenceRouter()
+        self._s2 = s2_client
 
         # Existing extractors (already in the codebase)
         self._parser = PaperParser()
@@ -284,6 +292,17 @@ class PaperIngestionPipeline:
         result.steps.append(cite_step)
         citations = cite_step.data if cite_step.status == StepStatus.SUCCESS else []
         result.citation_count = len(citations)
+
+        # ---- 3b. Semantic Scholar citation enrichment (non-critical) ---
+        # Enriches the cited papers' stub nodes with abstract, authors,
+        # year, venue, citation counts, and S2's TLDR. Distinct from
+        # OpenAlex (which enriches the uploaded paper itself).
+        #
+        # Runs before graph build so stub nodes are created rich rather
+        # than sparse-then-backfilled. If S2 is unreachable or
+        # rate-limits, citations fall through with whatever the regex
+        # extractor parsed — the pipeline still completes.
+        citations = self._enrich_citations_with_s2(paper_id, citations, result)
 
         # ---- 4. Entity Extraction (non-critical) ------------------------
         def _do_entities():
@@ -468,6 +487,93 @@ class PaperIngestionPipeline:
             "venue": enriched.get("venue"),
             "openalex_id": enriched.get("openalex_id"),
         }
+
+    def _enrich_citations_with_s2(
+        self, paper_id: str, citations: List[Dict], result: PipelineResult
+    ) -> List[Dict]:
+        """
+        Enrich citation dicts with Semantic Scholar metadata (Tier 1b).
+
+        Mutates each citation dict in place by merging S2 fields where
+        available, then returns the same list. Citations S2 doesn't
+        have, or when S2 is unreachable / rate-limited, pass through
+        unchanged — stubs for those citations stay sparse (just what
+        the regex extractor parsed).
+
+        Reports the S2 hit rate on the PipelineResult so callers can
+        observe enrichment quality.
+        """
+        if not citations:
+            result.steps.append(StepResult(
+                step_name="CITATION_ENRICHMENT", status=StepStatus.SKIPPED,
+                error="no citations to enrich",
+            ))
+            return citations
+
+        if self._s2 is None or not settings.SEMANTIC_SCHOLAR_ENABLED:
+            result.steps.append(StepResult(
+                step_name="CITATION_ENRICHMENT", status=StepStatus.SKIPPED,
+                error="Semantic Scholar enrichment not configured",
+            ))
+            return citations
+
+        def _do_enrich():
+            return self._s2.enrich_citations(citations)
+
+        step = self._run_step("CITATION_ENRICHMENT", _do_enrich)
+        result.steps.append(step)
+
+        if step.status != StepStatus.SUCCESS or not step.data:
+            return citations
+
+        # step.data is {lookup_key: enrichment_dict}. Merge into
+        # citation dicts in place. The lookup key is "doi:{doi}" or
+        # "arxiv:{arxiv_id}" — same logic as the S2 client uses.
+        enriched_count = 0
+        for cit in citations:
+            doi = (cit.get("doi") or "").strip()
+            arxiv_id = (cit.get("arxiv_id") or "").strip()
+            key = f"doi:{doi.lower()}" if doi else (
+                f"arxiv:{arxiv_id.lower()}" if arxiv_id else None
+            )
+            if key is None:
+                continue
+            enrichment = step.data.get(key)
+            if not enrichment:
+                continue
+            # Merge: S2 fields only override when the citation dict
+            # doesn't already have them (extractor values came from
+            # the citing paper's reference list and are lower priority
+            # than S2's canonical record, but we preserve them for
+            # provenance — the user can see both).
+            for k, v in enrichment.items():
+                if k == "s2_title":
+                    # S2's title is cleaner; override if extractor
+                    # found nothing, else keep both.
+                    if not cit.get("title"):
+                        cit["title"] = v
+                    else:
+                        cit["s2_title"] = v
+                elif k not in cit or not cit.get(k):
+                    cit[k] = v
+            enriched_count += 1
+
+        # Stash the hit rate on the result so the API response can
+        # surface it. Uses setattr because PipelineResult is a dataclass
+        # we don't want to modify here — the field is optional.
+        try:
+            setattr(result, "s2_enriched_count", enriched_count)
+            setattr(result, "s2_total_citations", len(citations))
+        except Exception:
+            pass  # PipelineResult may not accept these attrs; non-fatal
+
+        logger.info(
+            "s2_citation_enrichment.merged",
+            paper_id=paper_id,
+            enriched=enriched_count,
+            total=len(citations),
+        )
+        return citations
 
     # ------------------------------------------------------------------
     # LLM extraction + confidence routing

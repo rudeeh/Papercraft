@@ -64,6 +64,18 @@ class Settings(BaseSettings):
     OPENALEX_MAILTO: Optional[str] = None  # joins OpenAlex's polite pool
     OPENALEX_TIMEOUT_S: float = 10.0
 
+    # Semantic Scholar citation enrichment (Tier 1b).
+    # Enriches the *cited* papers' stub nodes with abstract, authors,
+    # year, venue, citation counts, and S2's TLDR. Distinct from
+    # OpenAlex (which enriches the uploaded paper itself).
+    #
+    # IMPORTANT: S2's free tier (no API key) rate-limits after ~1-2
+    # calls/hour/IP. For any real use, set SEMANTIC_SCHOLAR_API_KEY.
+    # Free key signup: https://www.semanticscholar.org/product/api#api-key-form
+    SEMANTIC_SCHOLAR_ENABLED: bool = True
+    SEMANTIC_SCHOLAR_API_KEY: Optional[str] = None
+    SEMANTIC_SCHOLAR_TIMEOUT_S: float = 30.0  # batch calls are slower than single
+
     # Extraction + confidence routing
     # "heuristic" -- regex/deterministic extractors only (default, no LLM cost)
     # "llm"       -- LLM extraction only
