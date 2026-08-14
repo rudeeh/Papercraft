@@ -21,6 +21,7 @@ from app.worker.tasks import (
     _create_llm_extractor,
     _create_neo4j_client,
     _create_openalex_client,
+    _create_s2_client,
     _create_vector_repo,
     _record_job,
 )
@@ -119,6 +120,7 @@ def process_arxiv_task(self, raw_arxiv_id: str) -> dict[str, Any]:
             openalex_client=_create_openalex_client(),
             llm_extractor=_create_llm_extractor(),
             draft_sink=_create_draft_sink(),
+            s2_client=_create_s2_client(),
         )
         result = pipeline.process(paper_id=doc_id, file_path=file_path)
     except Exception as exc:

@@ -78,6 +78,25 @@ def _create_openalex_client():
         return None
 
 
+def _create_s2_client():
+    """Semantic Scholar citation enricher, or None when disabled.
+
+    S2 enriches the papers *cited by* the uploaded paper (Tier 1b),
+    distinct from OpenAlex which enriches the uploaded paper itself.
+    Returns None when SEMANTIC_SCHOLAR_ENABLED is False or the client
+    can't be constructed — the pipeline falls through with sparse stubs.
+    """
+    if not settings.SEMANTIC_SCHOLAR_ENABLED:
+        return None
+    try:
+        from app.services.semantic_scholar import SemanticScholarClient
+
+        return SemanticScholarClient()
+    except Exception as exc:
+        logger.warning("Semantic Scholar client unavailable -- citation enrichment skipped: %s", exc)
+        return None
+
+
 def _create_llm_extractor():
     """LLM extractor, or None unless EXTRACTION_PROVIDER asks for one."""
     if settings.EXTRACTION_PROVIDER not in ("llm", "hybrid"):
@@ -168,6 +187,7 @@ def process_pdf_task(self, doc_id: str, file_path: str):
                 openalex_client=_create_openalex_client(),
                 llm_extractor=_create_llm_extractor(),
                 draft_sink=_create_draft_sink(),
+                s2_client=_create_s2_client(),
             )
             result = pipeline.process(paper_id=doc_id, file_path=file_path)
         finally:

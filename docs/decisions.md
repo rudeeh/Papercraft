@@ -362,3 +362,63 @@ working UI to start one is a regression dressed as progress.
 be decided into one or the other. This should end with the Angular app
 being deleted once `web/` covers what it covers — not with both being
 maintained indefinitely.
+
+---
+
+## ADR: Semantic Scholar for citation enrichment (Tier 1b)
+
+**Decision (2026-08-14):** Add `app/services/semantic_scholar.py` to
+enrich the papers *cited by* the uploaded paper, distinct from OpenAlex
+which enriches the uploaded paper itself.
+
+**Why S2 and not just OpenAlex for cited papers too:**
+
+1. **`influentialCitationCount`** — S2 classifies each citation as
+   influential or not using an ML model that examines the citation
+   context. OpenAlex has no equivalent. For a researcher trying to
+   identify the most important citations in a 300-reference survey,
+   influence scores are dramatically more useful than raw citation
+   counts.
+
+2. **`tldr`** — S2's auto-generated TLDR (model `tldr@v2.0.0`) gives a
+   1-2 sentence summary of each cited paper. OpenAlex doesn't have this.
+   The TLDR is stored with provenance (`{"text": ..., "model": ...,
+   "source": "semantic_scholar"}`) so any UI can label it as
+   auto-generated, not ground truth.
+
+3. **Batch endpoint** — S2's `POST /graph/v1/paper/batch` accepts up
+   to 500 IDs per call. OpenAlex has no batch endpoint; each cited
+   paper would need a separate request. For a 100-reference paper
+   that's 1 S2 call vs. 100 OpenAlex calls.
+
+4. **Coverage** — S2's corpus (200M+ papers) is broader than
+   OpenAlex's for CS/ML papers, which is the primary use case.
+
+**Why not S2 for the uploaded paper too?** OpenAlex is already
+integrated, tested, and produces higher-fidelity metadata for the
+uploaded paper (affiliations, referenced works, open access status).
+S2 is additive, not a replacement.
+
+**Why not title-based lookup for cited papers?** The regex citation
+extractor's titles are too noisy (OCR damage, truncation, "et al."
+artifacts) to use as S2 lookup keys. Title search would have a high
+false-positive rate. We only look up cited papers by DOI or arXiv ID —
+if the extractor didn't find either, the stub stays sparse. This is a
+known limitation that will improve when the extractor moves to LLM-based
+extraction (planned).
+
+**Rate limiting reality:** S2's free tier (no API key) is much more
+restrictive than their docs imply — roughly 1-2 requests per hour per
+IP, not "1 req/s." S2 does not send `Retry-After` headers on 429, so
+the client uses blind exponential backoff (1s, 2s, 4s) and gives up
+after 3 attempts. For any real use, `SEMANTIC_SCHOLAR_API_KEY` is
+effectively required (free signup at
+https://www.semanticscholar.org/product/api#api-key-form). Without a
+key, the CITATION_ENRICHMENT step silently degrades to sparse stubs
+after the first batch call hits 429.
+
+**Cost:** One additional non-critical pipeline step. If S2 is
+unavailable, stubs are created with just what the regex extractor
+parsed — the pipeline still completes. Latency is unmeasured due to
+free-tier rate limiting; expected to be under 10s for a 100-paper
+batch based on S2's documented characteristics.
