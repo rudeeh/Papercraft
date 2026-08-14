@@ -176,3 +176,48 @@ export const api = {
       '/curation/leaderboard',
     ),
 };
+
+// ---------------------------------------------------------------------------
+// Paper detail (split-screen UI)
+// ---------------------------------------------------------------------------
+
+export interface PaperSection {
+  heading: string;
+  text: string;
+}
+
+export interface PaperEntity {
+  node_type: string;
+  name: string;
+  properties: Record<string, unknown>;
+}
+
+export interface PaperCitation {
+  title?: string;
+  doi?: string;
+  arxiv_id?: string;
+  is_stub?: boolean;
+  abstract?: string;
+  citation_count?: number;
+  influential_citation_count?: number;
+  tldr?: { text: string; model: string; source: string };
+}
+
+export interface PaperExtraction {
+  doc_id: string;
+  title?: string;
+  abstract?: string;
+  sections: PaperSection[];
+  entities: PaperEntity[];
+  citations: PaperCitation[];
+  graph_stats: Record<string, number>;
+  has_pdf: boolean;
+  extraction_available: boolean;
+}
+
+export const paperApi = {
+  pdfUrl: (docId: string) => `${BASE}/papers/${docId}/pdf`,
+
+  extraction: (docId: string) =>
+    request<PaperExtraction>(`/papers/${docId}/extraction`),
+};

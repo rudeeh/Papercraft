@@ -3,3 +3,10 @@ node_modules
 out
 next-env.d.ts
 *.tsbuildinfo
+
+# pdf.js worker + assets — copied from node_modules by postinstall script
+# (not committed because they're ~2MB of binary files that match the
+# installed react-pdf version)
+public/pdf.worker.min.mjs
+public/cmaps/
+public/fonts/
