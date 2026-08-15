@@ -3,7 +3,7 @@ Hybrid Retriever Module (Phase 13.2)
 
 Classifies a query (Phase 13.1) and routes it to graph retrieval (Phase 11),
 vector retrieval (Phase 12), citation expansion (Phase 14), or a combination,
-per the routing table in AGENT_PHASES.md Phase 13:
+per the routing table in docs/AGENT_PHASES.md Phase 13:
 
     EXPLANATION   -> Vector Retrieval
     CITATION      -> Graph Retrieval
