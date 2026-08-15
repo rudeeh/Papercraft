@@ -18,8 +18,6 @@ A beginner-friendly guide to understanding the repository layout.
 
 ```
 ├── README.md                          # Main project documentation
-├── LEARN.md                           # Learning guide for newcomers
-├── AGENT_PHASES.md                    # Agent development phases
 ├── LICENSE                            # MIT License
 │
 ├── docker-compose.yml                 # Local development setup (all services)
@@ -145,6 +143,9 @@ docs/
 ├── decisions.md                       # Why we built things this way
 ├── arxiv-ingest.md                    # How papers are ingested from arXiv
 ├── DOCRAG_README.md                   # Document RAG system details
+├── AGENT_PHASES.md                    # Agent development phases
+├── FILE_STRUCTURE.md                  # This file (repo layout reference)
+├── LEARN.md                           # Learning guide for newcomers
 │
 ├── PHASE_1_3_EVALUATION.md            # Evaluation results
 ├── PHASE_1_3_TEST_REPORT.md           # Test reports
@@ -271,7 +272,7 @@ papercraftweaviateswap.bundle          # Weaviate vector DB snapshot
 
 - Use `Makefile` for quick commands: `make help`
 - Check `.env.example` to understand required environment variables
-- Read `LEARN.md` for project-specific learning materials
+- Read `docs/LEARN.md` for project-specific learning materials
 - Look at existing code before writing new features (follow patterns!)
 - Database schema is the "source of truth" → check `/app/db/models.py` first
 

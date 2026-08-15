@@ -14,3 +14,7 @@ tests/data/large.pdf
 htmlcov/
 # Local SQLite databases created by alembic tests / manual runs
 *.db
+# Git bundles — offline commit archives. The existing bundles in the repo
+# root (papercraftmain.bundle, papercraftweaviateswap.bundle) are kept for
+# now; this rule prevents new ones from being accidentally committed.
+*.bundle
